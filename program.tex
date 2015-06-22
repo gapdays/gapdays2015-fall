@@ -1,0 +1,141 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[left=2cm,right=2cm,top=3cm,bottom=3cm]{geometry}
+\pagestyle{empty}
+
+\usepackage[utf8]{inputenc}
+
+%
+% custom font
+%
+\usepackage[full]{textcomp} % to get the right copyright, etc.
+\usepackage{fbb} % osf for text, lining for math
+\usepackage[scaled=.95]{cabin}
+\usepackage[varqu,varl]{inconsolata}% typewriter
+\usepackage[libertine,bigdelims,vvarbb]{newtxmath}
+\usepackage[cal=boondoxo]{mathalfa}% less slanted than STIX
+\usepackage[T1]{fontenc}
+\useosf
+
+
+\usepackage{datetime}
+\usdate
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\usepackage{enumitem}
+
+\usepackage{xcolor}
+\usepackage[colorlinks=true]{hyperref}
+
+
+\newcommand{\TODO}[1]{\textcolor{red}{*** #1 ***}}
+
+\begin{document}
+
+\begin{center}
+{\huge\textbf{Program of the third GAP Days, September 14-18, 2015}\\[2mm]}
+Version from \today\ at \currenttime\\[2mm]
+Talks and coding sprint are at \href{https://www.google.de/maps/place/Technisch-Naturwissenschaftliche+Universität+Norwegens/@63.4163247,10.4036534,16z/data=!4m2!3m1!1s0x466d31bfd8c0937f:0xb4fde91ca281978b}{Department of Mathematical Sciences, NTNU N-7491 Trondheim, Norway}
+in room ???.
+\end{center}
+
+% \talk{TIME}{AUTHOR}{TITLE}
+\newcommand{\talk}[3]{#1 & #2 \\ & \textit{#3} \\}
+%\newcommand{\talk}[3]{#1 & #2: ``\textit{#3}'' \\}
+
+\newcommand{\newday}[1]{\multicolumn{2}{c}{{\large\textbf{#1}}} \\[1em]}
+
+
+\begin{tabular}{rp{14.5cm}}
+%
+\newday{Monday, September 14}
+09:00 & Welcoming session \\
+09:15 & Introduction to GAP 1 \\
+10:30 & Introduction to QPA 1 \\
+11:45 & Introduction to homalg/CAP 1 \\
+13:00 & Lunch \\
+15:00 & Introduction to GAP 2 \\
+16:30 & Exercise and discussion session
+
+%
+%
+\\
+%
+%
+\newday{Tuesday, September 15}
+09:15 & Introduction to GAP 3 \\
+10:30 & Quivers and relations of group algebras of finite groups  \\
+11:45 & Introduction to QPA 2 \\
+13:00 & Lunch \\
+15:00 & Exercise and discussion session
+
+%
+%
+\\
+%
+%
+\newday{Wednesday, September 16}
+09:15 & Introduction to GAP 4 \\
+10:30 & Introduction to QPA 3 \\
+11:45 & Introduction to homalg/CAP 2 \\
+13:00 & Lunch \\
+15:00 & Exercise and discussion session
+\end{tabular}
+
+%\newpage
+
+\begin{tabular}{rp{14.5cm}}
+%
+%
+\newday{Thursday, September 17}
+09:15 & Introduction to HPC-GAP 1 \\
+10:30 & Introduction to QPA 4 \\
+11:45 & Introduction to homalg/CAP 3 \\
+13:00 & Lunch \\
+15:00 & Exercise and discussion session
+
+%
+%
+\\
+%
+%
+\newday{Friday, September 18}
+09:15 & Introduction to HPC-GAP 2 \\
+10:30 & Introduction to homalg/CAP 4 \\
+11:45 &  \\
+13:00 & Lunch \\
+15:00 & Exercise and discussion session \\
+18:00 & End of school
+
+\end{tabular}
+
+\vfill
+
+\begin{center}
+  \url{http://gapdays.coxeter.de/gapdays2015-fall}
+\end{center}
+
+
+\pagebreak
+
+
+% \Abstract{NAME}{AFFILIATION}{TITLE}
+%\newenvironment{Abstract}[3]{\noindent\textbf{#1} (#2) \\ \noindent \textit{#3} \\ \noindent  \par{} \noindent}{\bigskip}
+\newenvironment{Abstract}[3]{\begin{itemize}[itemsep=0mm,label={}]
+  \item \textbf{#1} (#2)
+  \item ``\textit{#3}''
+  \item}{\end{itemize}\medskip}
+
+
+%\begin{center}
+%{\noindent\huge\textbf{Abstracts of talks and sessions}} \\[1em]
+%\end{center}
+
+
+%\begin{Abstract}{NAME}{AFFILIATION}{TITLE}
+%TEXT
+%\end{Abstract}
+
+
+\end{document}

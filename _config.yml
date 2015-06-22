@@ -1,0 +1,18 @@
+# Dependencies
+markdown:         redcarpet
+highlighter:      pygments
+
+# Permalinks
+permalink:        pretty
+
+# Setup
+title:            'GAP Days 2015, Fall'
+tagline:          'A GAP school'
+description:      'School: September 14-18 + Coding sprint: September 19-23, 2015'
+location:         'NTNU Trondheim'
+url:              http://gapdays.coxeter.de
+baseurl:          /gapdays2015-fall
+
+
+exclude: [ "program.aux", "program.log", "program.out", "program.tex", "misc" ]
+include: [ "program.pdf" ]
