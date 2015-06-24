@@ -8,13 +8,13 @@ theory of algebras and homological algebra in GAP. The talks will
 provide
 
 * a general introduction to programming in GAP, talks given by
-[Max Horn](mailto:max.horn@math.uni-giessen.de), 
+[Max Horn](http://www.quendi.de/math.php), 
 * an introduction to parallel programming in GAP, talks given by
 [Markus Pfeiffer](http://www.morphism.de/~markusp/), 
 * an introduction to the GAP-package [homalg/CAP](http://homalg.math.rwth-aachen.de/)
 (homological algebra and category theory in GAP), talks given by
-[Mohamed Barakat](mailto:mohamed.barakat@rwth-aachen.de), Sebastian
-Gutsche and Sebastian Posur, 
+[Mohamed Barakat](http://www.mathematik.uni-kl.de/~barakat/en/index), [Sebastian
+Gutsche](http://wwwb.math.rwth-aachen.de/~gutsche/) and [Sebastian Posur](http://wwwb.math.rwth-aachen.de/Mitarbeiter/posur.php), 
 * an introduction to the GAP-package [QPA](http://www.math.ntnu.no/~oyvinso/QPA/) (Quivers and Path
 Algebras), talks given by
 [Øystein Skartsæterhagen](http://www.math.ntnu.no/~oysteini/) and

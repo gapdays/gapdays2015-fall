@@ -16,7 +16,7 @@ GAP-packages [homalg/CAP](http://homalg.math.rwth-aachen.de/)
 Algebras).
 
 The school will be followed by a coding sprint to mutally integrate
-the homalg/CAP packages and QPA. It will end on Wednesday the 23rd at
+the GAP-packages homalg/CAP and QPA. It will end on Wednesday the 23rd at
 13:00.
 
 
