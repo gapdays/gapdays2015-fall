@@ -4,19 +4,33 @@ title: Program
 ---
 
 The first week of the 3rd GAP Days is a school on representation
-theory of algebras and homological algebra in GAP. The talks
-will provide a general introduction to programming in GAP,
-QPA (Quiver and Path Algebras), and homalg/CAP
-(homological algebra and category theory in GAP).
+theory of algebras and homological algebra in GAP. The talks will
+provide
+
+* a general introduction to programming in GAP, talks given by
+[Max Horn](mailto:max.horn@math.uni-giessen.de), 
+* an introduction to parallel programming in GAP, talks given by
+[Markus Pfeiffer](http://www.morphism.de/~markusp/), 
+* an introduction to the GAP-package [homalg/CAP](http://homalg.math.rwth-aachen.de/)
+(homological algebra and category theory in GAP), talks given by
+[Mohamed Barakat](mailto:mohamed.barakat@rwth-aachen.de), Sebastian
+Gutsche and Sebastian Posur, 
+* an introduction to the GAP-package [QPA](http://www.math.ntnu.no/~oyvinso/QPA/) (Quivers and Path
+Algebras), talks given by
+[Øystein Skartsæterhagen](http://www.math.ntnu.no/~oysteini/) and
+[Øyvind Solberg](http://www.math.ntnu.no/~oyvinso/),
+* an introduction to finding quivers and relations of group rings of
+  finite groups, talk given by [Klaus Lux](http://math.arizona.edu/~klux/). 
 
 The school will be followed by a coding sprint to mutally integrate
-the QPA and homalg/CAP. It will end on Wednesday the 23rd at 13:00.
+the homalg/CAP and QPA. It will end on Wednesday the 23rd at 13:00.
 
 
 *  [Schedule as PDF]({{ site.baseurl }}/program.pdf)
   * Welcoming session: Monday, September 14, 09:00
   * First talk: Monday, September 14, 09:15
-  * Joint dinner: ???
+  * Joint dinner: Wednesday 16, excursion in the afternoon to
+    [Elgsethytta](http://www.elgsethytta.com/public.aspx?pageid=88995) 
   * End: Friday, September 18, 18:00
 
 * Please install GAP on your laptop _before_ arriving to the school.

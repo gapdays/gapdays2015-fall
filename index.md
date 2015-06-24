@@ -7,13 +7,17 @@ title: Home
 ## {{ site.description }}, {{ site.location }}
 
 The first week of the 3rd GAP Days is a school on representation
-theory of algebras and homological algebra in GAP. The talks
-will provide a general introduction to programming in GAP,
-QPA (Quiver and Path Algebras), and homalg/CAP
-(homological algebra and category theory in GAP).
+theory of algebras and homological algebra in GAP. The talks will
+provide a general introduction to programming in GAP and an
+introduction to parallel programming in GAP, and introductions to the
+GAP-packages [homalg/CAP](http://homalg.math.rwth-aachen.de/)
+(homological algebra and category theory in GAP) and
+[QPA](http://www.math.ntnu.no/~oyvinso/QPA/) (Quivers and Path
+Algebras).
 
 The school will be followed by a coding sprint to mutally integrate
-the QPA and homalg/CAP. It will end on Wednesday the 23rd at 13:00.
+the homalg/CAP packages and QPA. It will end on Wednesday the 23rd at
+13:00.
 
 
 {% comment %}
@@ -56,7 +60,9 @@ If you have questions or suggestions, please contact the organizers:
 
 ## Sponsors
 
-This workshop is supported by the NTNU Trondheim.
+This workshop is supported by the Research Council of Norway, the
+project
+[Clusters, combinatorics and computations in algebra](https://www.cristin.no/app/projects/show.jsf?id=452886).
 
 ## Previous GAP Days
 
