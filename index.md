@@ -4,7 +4,7 @@ title: Home
 ---
 
 # Third [GAP](http://www.gap-system.org/) Days
-## {{ site.description }}, {{ site.location }}
+## {{ site.description }}<br> {{ site.location }}
 
 The first week of the 3rd GAP Days is a school on representation
 theory of algebras and homological algebra in GAP. The talks will
