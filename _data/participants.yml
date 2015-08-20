@@ -1,5 +1,11 @@
+- name: Abdulsatar Jmah Theib AL-Juburie
+  affiliation: Newcastle University
+
 - name: Mohamed Barakat
   affiliation: RWTH Aachen University
+
+- name: Edward L. Green
+  affiliation: Virginia Polytechnic Institute and State University
 
 - name: Sebastian Gutsche
   affiliation: TU Kaiserslautern
@@ -7,8 +13,29 @@
 - name: Max Horn
   affiliation: JLU Gießen
 
+- name: Sondre Kvamme
+  affiliation: University of Bonn
+
+- name: Klaus Lux
+  affiliation: The University of Arizona
+
+- name: James Mitchell
+  affiliation: University of St Andrews
+
 - name: Markus Pfeiffer
   affiliation: University of St Andrews
+
+- name: Sebastian Posur
+  affiliation: RWTH Aachen University
+
+- name: Iryna Raievska
+  affiliation: Institute of Math. of Nat. Acad. of Sciences of Ukraine
+
+- name: Maryna Raievska
+  affiliation: Institute of Math. of Nat. Acad. of Sciences of Ukraine
+
+- name: Mads Hustad Sandøy
+  affiliation: NTNU Trondheim
 
 - name: Øystein Skartsæterhagen
   affiliation: NTNU Trondheim
@@ -16,5 +43,5 @@
 - name: Øyvind Solberg
   affiliation: NTNU Trondheim
 
-- name: Sebastian Posur
-  affiliation: RWTH Aachen University
+- name: ...
+  affiliation: ...
