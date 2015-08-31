@@ -4,11 +4,20 @@
 - name: Mohamed Barakat
   affiliation: RWTH Aachen University
 
+- name: Jan De Beule
+  affiliation: Ghent University
+
+- name: Martin Bies
+  affiliation: Institute for Theoretical Physics, Heidelberg
+
 - name: Edward L. Green
   affiliation: Virginia Polytechnic Institute and State University
 
 - name: Sebastian Gutsche
   affiliation: TU Kaiserslautern
+
+- name: Chris Jefferson
+  affiliation: University of St Andrews
 
 - name: Max Horn
   affiliation: JLU Gießen
@@ -43,5 +52,5 @@
 - name: Øyvind Solberg
   affiliation: NTNU Trondheim
 
-- name: ...
-  affiliation: ...
+- name: Gunnar Arvid Sveinsson
+  affiliation: NTNU Trondheim

@@ -1,7 +1,10 @@
 a.j.t.al-juburie@ncl.ac.uk
 mohamed.barakat@rwth-aachen.de
+jdebeule@cage.ugent.be
+bies@thphys.uni-heidelberg.de
 green@math.vt.edu
 sebastian.gutsche@rwth-aachen.de
+caj21@st-andrews.ac.uk
 Max.Horn@math.uni-giessen.de
 sondre@math.uni-bonn.de
 klux@math.arizona.edu
