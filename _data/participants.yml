@@ -52,6 +52,8 @@
 
 - name: Øystein Skartsæterhagen
   affiliation: NTNU Trondheim
+  links:
+    "lecture notes/exercises": http://www.math.ntnu.no/~oysteini/qpa-intro/
 
 - name: Øyvind Solberg
   affiliation: NTNU Trondheim
