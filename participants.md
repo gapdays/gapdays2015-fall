@@ -11,6 +11,7 @@ title: Participants
     {% if p.slides != null %} <a href="../talks/{{ p.slides }}">(slides)</a> {% endif %}
     {% if p.lecturenotes != null %} <a href="../talks/{{ p.lecturenotes }}">(lecture notes)</a> {% endif %}
     {% if p.demo != null %} <a href="../talks/{{ p.demo }}">(examples)</a> {% endif %}
+    {% if p.worksheets != null %} <a href="{{ p.worksheets }}">(worksheets)</a> {% endif %}
     <br/>
     {% comment %}
       {% if p.talk != null %} Talk: {{ p.talk }}{% endif %}
