@@ -14,9 +14,7 @@ title: Participants
         {% endfor %}
     {% endif %}
     <br/>
-    {% comment %}
       {% if p.talk != null %} Talk: {{ p.talk }}{% endif %}
-    {% endcomment %}
   </li>
 {% endfor %}
 </ol>

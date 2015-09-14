@@ -1,7 +1,9 @@
 - name: Mohamed Barakat
   affiliation: RWTH Aachen University
   links:
-    "lecture notes": ../talks/AHA.pdf
+    "lecture notes": http://www.mathematik.uni-kl.de/~barakat/Lehre/WS13/HomologicalAlgebra/Skript/AHA.pdf
+    "slides": ../talk/CHA.pdf
+  talk: homalg -- Constructive Homological Algebra
 
 - name: Jan De Beule
   affiliation: Ghent University
