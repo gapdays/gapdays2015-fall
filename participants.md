@@ -8,10 +8,11 @@ title: Participants
   <li>
     <strong>{{ p.name }}</strong>
     {% if p.affiliation != null %} ({{ p.affiliation }}){% endif %}
-    {% if p.slides != null %} <a href="../talks/{{ p.slides }}">(slides)</a> {% endif %}
-    {% if p.lecturenotes != null %} <a href="../talks/{{ p.lecturenotes }}">(lecture notes)</a> {% endif %}
-    {% if p.demo != null %} <a href="../talks/{{ p.demo }}">(examples)</a> {% endif %}
-    {% if p.worksheets != null %} <a href="{{ p.worksheets }}">(worksheets)</a> {% endif %}
+    {% if p.links != null %}
+        {% for item in p.links %}
+            <a href="{{ item[1] }}">({{ item[0] }})</a>
+        {% endfor %}
+    {% endif %}
     <br/>
     {% comment %}
       {% if p.talk != null %} Talk: {{ p.talk }}{% endif %}

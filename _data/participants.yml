@@ -1,6 +1,7 @@
 - name: Mohamed Barakat
   affiliation: RWTH Aachen University
-  lecturenotes: AHA.pdf
+  links:
+    "lecture notes": ../talks/AHA.pdf
 
 - name: Jan De Beule
   affiliation: Ghent University
@@ -22,7 +23,8 @@
 
 - name: Max Horn
   affiliation: JLU Gießen
-  worksheets: http://bit.ly/gap-worksheets2015
+  links:
+    "worksheets": http://bit.ly/gap-worksheets2015
 
 - name: Sondre Kvamme
   affiliation: University of Bonn
