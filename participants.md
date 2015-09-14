@@ -9,6 +9,7 @@ title: Participants
     <strong>{{ p.name }}</strong>
     {% if p.affiliation != null %} ({{ p.affiliation }}){% endif %}
     {% if p.slides != null %} <a href="../talks/{{ p.slides }}">(slides)</a> {% endif %}
+    {% if p.lecturenotes != null %} <a href="../talks/{{ p.lecturenotes }}">(lecture notes)</a> {% endif %}
     {% if p.demo != null %} <a href="../talks/{{ p.demo }}">(examples)</a> {% endif %}
     <br/>
     {% comment %}
