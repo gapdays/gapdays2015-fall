@@ -73,6 +73,6 @@ project
   </li>
   <li>
     <strong></strong>
-    <a href="http://gapdays.coxeter.de/gapdays2015-spring/">Second GAP Days</a>
+    <a href="/gapdays2015-spring/">Second GAP Days</a>
   </li>
 </ol>
