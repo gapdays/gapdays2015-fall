@@ -43,6 +43,10 @@ To do so, we suggest following [Reimer's build guide](https://github.com/gap-sys
 If you encounter any difficulties, use the [issue tracker](https://github.com/gap-system/gap/issues)
 to report your problem (please include OS version, compiler version, ...).
 
+* The third talk about homalg/CAP will be an interactive hands-on session.
+If you are interested in this, please download the latest version of the
+[CAP project](https://github.com/homalg-project/CAP_project).
+
 {% comment %}
 
 
