@@ -1,0 +1,3201 @@
+</body>
+</html>
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN"
+      "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head><title>HPC-GAP Shared Memory Concurrency Extensions</title></head>
+<body style='margin:2em;width:40em'>
+<h1>HPC-GAP Shared Memory Concurrency Extensions</h1>
+
+<h2>Table of Contents</h2>
+1. <a href="#s1.">Tasks</a><br>
+2. <a href="#s2.">Variables in HPC-GAP</a><br>
+3. <a href="#s3.">How HPC-GAP organizes shared memory: Regions</a><br>
+4. <a href="#s4.">Console User Interface</a><br>
+5. <a href="#s5.">Atomic objects</a><br>
+6. <a href="#s6.">Thread functions</a><br>
+7. <a href="#s7.">Channels</a><br>
+8. <a href="#s8.">Semaphores</a><br>
+9. <a href="#s9.">Synchronization variables</a><br>
+10. <a href="#s10.">Serialization support</a><br>
+11. <a href="#s11.">ZeroMQ Bindings</a><br>
+12. <a href="#s12.">Using ZeroMQ with the zgap script</a><br>
+13. <a href="#s13.">Low-level functionality</a><br>
+<h2 id="s1.">1. Tasks</h2>
+
+<p>Tasks provide mid- to high-level functionality for programmers to
+describe asynchronous workflows. A task is an asynchronously or
+synchronously executing job; functions exist to create tasks that are
+executed concurrently, on demand, or in the current thread; to wait for
+their completion, check their status, and retrieve any results.</p>
+
+<p>Here is a simple example of sorting a list in the background:</p>
+
+<pre>
+gap&gt; task := RunTask(x -&gt; SortedList(x), [3,2,1]);;
+gap&gt; WaitTask(task);
+gap&gt; TaskResult(task);
+[ 1, 2, 3 ]
+</pre>
+
+<p><tt><a href="#s1.1.1">RunTask</a></tt> dispatches a task to run in
+the background; a task is described by a function and zero or more
+arguments that are passed to <tt><a href="#s1.1.1">RunTask</a></tt>.
+<tt><a href="#s1.1.10">WaitTask</a></tt> waits for the task to complete;
+and <tt>TaskResult</tt> returns the result of the task.</p>
+
+<p><tt><a href="#s1.1.13">TaskResult</a></tt> does an implicit <tt><a
+href="#s1.1.10">WaitTask</a></tt>, so the second line above can actually
+be omitted:</p>
+
+<pre>
+gap&gt; task := RunTask(x -&gt; SortedList(x), [3,2,1]);;
+gap&gt; TaskResult(task);
+[ 1, 2, 3 ]
+</pre>
+
+<p>It is simple to run two tasks in parallel. Let&#39;s compute the
+factorial of 10000 by splitting the work between two tasks:</p>
+
+<pre>
+gap&gt; task1 := RunTask(Product, [1..5000]);;
+gap&gt; task2 := RunTask(Product, [5001..10000]);;
+gap&gt; TaskResult(task1) * TaskResult(task2) = Factorial(10000);
+true
+</pre>
+
+<p>You can use <tt><a href="#s1.1.3">DelayTask</a></tt> to delay
+executing the task until its result is actually needed.</p>
+
+<pre>
+gap&gt; task1 := DelayTask(Product, [1..5000]);;
+gap&gt; task2 := DelayTask(Product, [5001..10000]);;
+gap&gt; WaitTask(task1, task2);
+gap&gt; TaskResult(task1) * TaskResult(task2) = Factorial(10000);
+true
+</pre>
+
+<p>Note that <tt><a href="#s1.1.10">WaitTask</a></tt> is used here to
+start execution of both tasks; otherwise, <tt>task2</tt> would not be
+started until <tt>TaskResult(task1)</tt> has been evaluated.</p>
+
+<p>To start execution of a delayed task, you can also use
+<tt>ExecuteTask</tt>. This has no effect if a task has already been
+running.</p>
+
+<p>For convenience, you can also use <tt><a
+href="#s1.1.7">ImmediateTask</a></tt> to execute a task synchronously
+(i.e., the task is started immediately and the call does not return
+until the task has completed).</p>
+
+<pre>
+gap&gt; task := ImmediateTask(x -&gt; SortedList(x), [3,2,1]);;
+gap&gt; TaskResult(task);
+[ 1, 2, 3 ]
+</pre>
+
+<p>This is indistinguishable from calling the function directly, but
+provides the same interface as normal tasks.</p>
+
+<p>Sometimes it can be useful to ignore the result of a task. The
+<tt>RunAsyncTask</tt> provides the necessary functionality.</p>
+
+<pre>
+gap&gt; RunAsyncTask(function() Print(&quot;Hello, world!\n&quot;); end);;
+Hello, world!
+</pre>
+
+<p>Such a task cannot be waited for and its result (if any) is
+ignored.</p>
+
+<p>Task arguments are generally copied so that both the task that
+created them and the task that uses them can access the data
+concurrently without fear of race conditions. To avoid copying,
+arguments should be made shared or public (see the relevant parts of the
+section on <a href="#s3.">regions</a>); shared and public arguments will
+not be copied.</p>
+
+<p>HPC-GAP currently has multiple implementations of the task API. To
+enable the reference implementation, set the environment variable
+GAP_STDTASKS to a non-empty value before starting GAP.</p>
+
+<h3 id="s1.1">1.1 Running tasks</h3>
+
+<h3 id="s1.1.1">1.1.1 RunTask(func [, arg1, ..., argn])</h3>
+
+<p><tt>RunTask</tt> prepares a task for execution and starts it. The
+task will call the function <tt>func</tt> with arguments <tt>arg1</tt>
+through <tt>argn</tt> (if provided). The return value of <tt>func</tt>
+is the result of the task.</p>
+
+<p>The <tt>RunTask</tt> call itself returns a task object that can be
+used by functions that expect a task argument.</p>
+
+<h3 id="s1.1.2">1.1.2 ScheduleTask(condition, func, [, arg1, ...,
+argn])</h3>
+
+<p><tt>ScheduleTask</tt> prepares a task for execution, but, unlike
+<tt>RunTask</tt> does not start it until <tt>condition</tt> is met. See 
+on how to construct conditions. Simple examples of conditions are
+individual tasks (execution occurs after the task completes) or lists of
+tasks (execution occurs after all tasks in the list complete).</p>
+
+<pre>
+gap&gt; t1 := RunTask(x-&gt;x*x, 3);;
+gap&gt; t2 := RunTask(x-&gt;x*x, 4);;
+gap&gt; t := ScheduleTask([t1, t2], function()
+&gt;           return TaskResult(t1) + TaskResult(t2);
+&gt;    end);
+gap&gt; TaskResult(t);
+25
+</pre>
+
+<p>While the above example could also be achieved with <tt>RunTask</tt>
+in lieu of <tt>ScheduleTask</tt>, since <tt>TaskResult</tt> would wait
+for <tt>t1</tt> and <tt>t2</tt> to complete, the above implementation
+does not actually start the final task until the others are complete,
+making it more efficient, since no additional worker thread needs to be
+occupied.</p>
+
+<h3 id="s1.1.3">1.1.3 DelayTask(func [, arg1, ..., argn])</h3>
+
+<p><tt>DelayTask</tt> works as <tt><a href="#s1.1.1">RunTask</a></tt>,
+but its start is delayed until it is being waited for (including
+implicitly by calling <tt><a href="#s1.1.13">TaskResult</a></tt>).</p>
+
+<h3 id="s1.1.4">1.1.4 RunAsyncTask(func [, arg1, ..., argn])</h3>
+
+<p><tt>RunAsyncTask</tt> creates an asynchronous task. It works like
+<tt><a href="#s1.1.1">RunTask</a></tt>, except that its result will be
+ignored.</p>
+
+<h3 id="s1.1.5">1.1.5 ScheduleAsyncTask(condition, func, [, arg1, ...,
+argn])</h3>
+
+<p><tt>ScheduleAsyncTask</tt> creates an asynchronous task. It works
+like <tt><a href="#s1.1.2">ScheduleTask</a></tt>, except that its result
+will be ignored.</p>
+
+<h3 id="s1.1.6">1.1.6 MakeTaskAsync(task)</h3>
+
+<p><tt>MakeTaskAsync</tt> turns a synchronous task into an asynchronous
+task that cannot be waited for and whose result will be ignored.</p>
+
+<h3 id="s1.1.7">1.1.7 ImmediateTask(func [, arg1, ..., argn])</h3>
+
+<p><tt>ImmediateTask</tt> executes the task specified by its arguments
+synchronously, usually within the current thread.</p>
+
+<h3 id="s1.1.8">1.1.8 ExecuteTask(task)</h3>
+
+<p><tt>ExecuteTask</tt> starts <tt>task</tt> if it is not already
+running. It has only an effect if its argument is a task returned by
+<tt><a href="#s1.1.3">DelayTask</a></tt>; otherwise, it is a no-op.</p>
+
+<h3 id="s1.1.9">1.1.9 WaitTask(task1, ..., taskn)</h3>
+
+<h3 id="s1.1.10">1.1.10 WaitTask(condition)</h3>
+
+<p><tt>WaitTask</tt> waits until <tt>task1</tt> through <tt>taskn</tt>
+have completed; after that, it returns.</p>
+
+<p>Alternatively, a condition can be passed to <tt>WaitTask</tt> in
+order to wait until a condition is met. See  on how to construct
+conditions.</p>
+
+<h3 id="s1.1.11">1.1.11 WaitTasks(task1, ..., taskn)</h3>
+
+<p><tt>WaitTasks</tt> is an alias for <tt>WaitTask</tt>.</p>
+
+<h3 id="s1.1.12">1.1.12 WaitAnyTask(task1, ..., taskn)</h3>
+
+<p>The <tt>WaitAnyTask</tt> function waits for any of its arguments to
+finish, then returns the number of that task.</p>
+
+<pre>
+gap&gt; task1 := DelayTask(x-&gt;SortedList(x), [3,2,1]);;
+gap&gt; task2 := DelayTask(x-&gt;SortedList(x), [6,5,4]);;
+gap&gt; which := WaitAnyTask(task1, task2);
+2
+gap&gt; if which = 1 then
+&gt;      Display(TaskResult(task1));Display(TaskResult(task2));
+&gt;    else
+&gt;      Display(TaskResult(task2));Display(TaskResult(task1));
+&gt;    fi;
+[ 4, 5, 6 ]
+[ 1, 2, 3 ]
+</pre>
+
+<p>One can pass a list of tasks to <tt>WaitAnyTask</tt> as an argument;
+<tt>WaitAnyTask([task1, ..., taskn])</tt> behaves identically to
+<tt>WaitAnyTask(task1, ..., taskn)</tt>.</p>
+
+<h3 id="s1.1.13">1.1.13 TaskResult(task)</h3>
+
+<p>The <tt>TaskResult</tt> function returns the result of a task. It
+implicitly does a <tt>WaitTask(task)</tt> if that is necessary. Multiple
+invocations of <tt>TaskResult</tt> with the same task argument will not
+do repeated waits and always return the same value.</p>
+
+<h3 id="s1.1.14">1.1.14 CurrentTask()</h3>
+
+<p>The <tt>CurrentTask</tt> returns the currently running task.</p>
+
+<h3 id="s1.1.15">1.1.15 RunningTasks()</h3>
+
+<p>This function returns the number of currently running tasks. Note
+that it is only an approximation and can change as new tasks are being
+started by other threads.</p>
+
+<h3 id="s1.1.16">1.1.16 TaskStarted(task)</h3>
+
+<p>This function returns true if the task has started executing (i.e.,
+for any non-delayed task), false otherwise.</p>
+
+<h3 id="s1.1.17">1.1.17 TaskFinished(task)</h3>
+
+<p>This function returns true if the task has finished executing and its
+result is available, false otherwise.</p>
+
+<h3 id="s1.1.18">1.1.18 TaskIsAsync(task)</h3>
+
+<p>This function returns true if the task is asynchronous, true
+otherwise.</p>
+
+<h3 id="s1.1.19">1.1.19 CullIdleTasks()</h3>
+
+<p>This function terminates unused worker threads.</p>
+
+<h3 id="s1.2">1.2 Cancelling tasks</h3>
+
+<p>HPC-GAP uses a cooperative model for task cancellation. A programmer
+can request the cancellation of another task, but it is up to that other
+task to actually terminate itself. The tasks library has functions to
+request cancellation, to test for the cancellation state of a task, and
+to perform actions in response to cancellation requests.</p>
+
+<h3 id="s1.2.1">1.2.1 CancelTask(task)</h3>
+
+<p><tt>CancelTask</tt> submits a request that <tt>task</tt> is to be
+cancelled.</p>
+
+<h3 id="s1.2.2">1.2.2 TaskCancellationRequested(task)</h3>
+
+<p><tt>TaskCancellationRequested</tt> returns true if
+<tt>CancelTask</tt> has been called for <tt>task</tt>, false
+otherwise.</p>
+
+<h3 id="s1.2.3">1.2.3 OnTaskCancellation(exit_func)</h3>
+
+<p><tt>OnTaskCancellation</tt> tests if cancellation for the current
+task has been requested. If so, then <tt>exit_func</tt> will be called
+(as a parameterless function) and the current task will be aborted. The
+result of the current task will be the value of
+<tt>exit_func()</tt>.</p>
+
+<p>Example:</p>
+
+<pre>
+gap&gt; task := RunTask(function()
+&gt;      while true do
+&gt;        OnTaskCancellation(function() return 314; end);
+&gt;      od;
+&gt;    end);
+gap&gt; CancelTask(task);
+gap&gt; TaskResult(task);
+314
+</pre>
+
+<h3 id="s1.2.4">1.2.4 OnTaskCancellationReturn(value)</h3>
+
+<p><tt>OnTaskCancellationReturn</tt> is a convenience function that does
+the same as:</p>
+
+<pre>
+OnTaskCancellation(function() return value; end);
+</pre>
+
+<h3 id="s1.3">1.3 Conditions</h3>
+
+<p><tt>ScheduleTask</tt> and <tt>WaitTask</tt> can be made to wait on
+more complex conditions than just tasks. A condition is either a
+milestone, a task, or a list of milestones and tasks.
+<tt>ScheduleTask</tt> starts its task and <tt>WaitTask</tt> returns when
+the condition has been met. A condition represented by a task is met
+when the task has completed. A condition represented by a milestone is
+met when the milestone has been achieved (see below). A condition
+represented by a list is met when all conditions in the list have been
+met.</p>
+
+<h3 id="s1.4">1.4 Milestones</h3>
+
+<p>Milestones are a way to represent abstract conditions to which
+multiple tasks can contribute.</p>
+
+<h3 id="s1.4.1">1.4.1 NewMilestone([list])</h3>
+
+<p>The <tt>NewMilestone</tt> function creates a new milestone. Its
+argument is a list of targets, which must be a list of integers and/or
+strings. If omitted, the list defaults to <tt>[0]</tt>.</p>
+
+<h3 id="s1.4.2">1.4.2 ContributeToMilestone(milestone, target)</h3>
+
+<p>The <tt>ContributeToMilestone</tt> milestone function contributes the
+specified target to the milestone. Once all targets have been
+contributed to a milestone, it has been achieved.</p>
+
+<h3 id="s1.4.3">1.4.3 AchieveMilestone(milestone)</h3>
+
+<p>The <tt>AchieveMilestone</tt> function allows a program to achieve a
+milestone in a single step without adding individual targets to it. This
+is most useful in conjunction with the default value for
+<tt>NewMilestone</tt>, e.g.</p>
+
+<pre>
+gap&gt; m := NewMilestone();;
+gap&gt; AchieveMilestone(m);
+</pre>
+
+<h3 id="s1.4.4">1.4.4 IsMilestoneAchieved(milestone)</h3>
+
+<p>The <tt>IsMilestoneAchieved</tt> tests explicitly if a milestone has
+been achieved. It returns <tt>true</tt> on success, <tt>false</tt>
+otherwise.</p>
+
+<pre>
+gap&gt; m := NewMilestone([1,2]);;
+gap&gt; ContributeToMilestone(m, 1);
+gap&gt; IsMilestoneAchieved(m);
+false
+gap&gt; ContributeToMilestone(m, 2);
+gap&gt; IsMilestoneAchieved(m);
+true
+</pre>
+
+<hr>
+<h2 id="s2.">2. Variables in HPC-GAP</h2>
+
+<p>Variables with global scope have revised semantics in HPC-GAP in
+order to address concurrency issues. The normal semantics of global
+variables that are only accessed by a single thread remain
+unaltered.</p>
+
+<h3 id="s2.1">2.1 Global variables</h3>
+
+<p>Global variables in HPC-GAP an be accessed by all threads
+concurrently without explicit synchronization. Concurrent access is
+safe, but it is not deterministic. If multiple threads attempt to modify
+the same global variable simultaneously, the resulting value of the
+variable is random; it will be one of the values assigned by a thread,
+but it is impossible to predict with certainty which specific one will
+be assigned.</p>
+
+<h3 id="s2.2">2.2 Thread-local variables</h3>
+
+<p>HPC-GAP supports the notion of thread-local variables. Thread-local
+variables are (after being declared as such) accessed and modified like
+global variables. However, unlike global variables, each thread can
+assign a distinct value to a thread-local variable.</p>
+
+<pre>
+gap&gt; MakeThreadLocal(&quot;x&quot;);
+gap&gt; x := 1;;
+gap&gt; WaitTask(RunTask(function() x := 2; end));
+gap&gt; x;
+1
+</pre>
+
+<p>As can be seen here, the assignment to <tt>x</tt> in a separate
+thread does not overwrite the value of <tt>x</tt> in the main
+thread.</p>
+
+<h3 id="s2.3">2.3 MakeThreadLocal(name)</h3>
+
+<p><tt>MakeThreadLocal</tt> makes the variable described by the string
+<tt>name</tt> a thread-local variable. It normally does not give it an
+initial value; either explicit per-thread assignment or a call to <tt><a
+href="#s2.4">BindThreadLocal</a></tt> or <tt><a
+href="#s2.5">BindThreadLocalConstructor</a></tt> to provide a default
+value is necessary.</p>
+
+<p>If a global variable with the same name exists and is bound at the
+time of the call, its value will be used as the default value as though
+<tt><a href="#s2.4">BindThreadLocal</a></tt> had been called with that
+value as its second argument.</p>
+
+<h3 id="s2.4">2.4 BindThreadLocal(name, obj)</h3>
+
+<p><tt>BindThreadLocal</tt> gives the thread-local variable described by
+the string <tt>name</tt> the default value <tt>obj</tt>. The first time
+the thread-local variable is accessed in a thread thereafter, it will
+yield <tt>obj</tt> as its value if it hasn&#39;t been assigned a
+specific value yet.</p>
+
+<h3 id="s2.5">2.5 BindThreadLocalConstructor(name, func)</h3>
+
+<p><tt>BindThreadLocal</tt> gives the thread-local variable described by
+the string <tt>name</tt> the constructor <tt>func</tt>. The first time
+the thread-local variable is accessed in a thread thereafter, it will
+yield <tt>func()</tt> as its value if it hasn&#39;t been assigned a
+specific value yet.</p>
+
+<h3 id="s2.6">2.6 ThreadVar</h3>
+
+<p>All thread-local variables are stored in the thread-local record
+<tt>ThreadVar</tt>. Thus, if <tt>x</tt> is a thread-local variable,
+using <tt>ThreadVar.x</tt> is the same as using <tt>x</tt>.</p>
+
+<hr>
+<h2 id="s3.">3. How HPC-GAP organizes shared memory: Regions</h2>
+
+<p>HPC-GAP allows multiple threads to access data shared between them;
+to avoid common concurrency errors, such as race conditions, it
+partitions GAP objects into regions. Access to regions is regulated so
+that no two threads can modify objects in the same region at the same
+time and so that objects that are being read by one thread cannot
+concurrently be modified by another.</p>
+
+<h3 id="s3.1">3.1 Thread-local regions</h3>
+
+<p>Each thread has an associated thread-local region. When a thread
+implicitly or explicitly creates a new object, that object initially
+belongs to the thread&#39;s thread-local region.</p>
+
+<p>Only the thread can read or modify objects in its thread-local
+region. For other threads to access an object, that object has to be
+migrated into a different region first.</p>
+
+<h3 id="s3.2">3.2 Shared regions</h3>
+
+<p>Shared regions are explicitly created through the <tt><a
+href="#s3.9.9">ShareObj</a></tt> and <tt><a
+href="#s3.9.15">ShareSingleObj</a></tt> primitives (see below). Multiple
+threads can access them concurrently, but accessing them requires that a
+thread uses an <tt>atomic</tt> statement to acquire a read or write lock
+beforehand.</p>
+
+<p>See the section on <tt>atomic</tt> statements (Section <a
+href="#s3.9.43">3.9.43</a>) for details.</p>
+
+<h3 id="s3.3">3.3 Ordering of shared regions</h3>
+
+<p>Shared regions are by default ordered; each shared region has an
+associated numeric precedence level. Regions can generally only be
+locked in order of descending precedence. The purpose of this mechanism
+is to avoid accidental deadlocks.</p>
+
+<p>The ordering requirement can be overridden in two ways: regions with
+a negative precedence are excluded from it. This exception should be
+used with care, as it can lead to deadlocks.</p>
+
+<p>Alternatively, two or more regions can be locked simultaneously via
+the <tt>atomic</tt> statement. In this case, the ordering of these
+regions relative to each other can be arbitrary.</p>
+
+<h3 id="s3.4">3.4 The public region</h3>
+
+<p>A special public region contains objects that only permit atomic
+operations. These include, in particular, all immutable objects
+(immutable in the sense that their in-memory representation cannot
+change).</p>
+
+<p>All threads can access objects in the public region at all times
+without needing to acquire a read- or write-lock beforehand.</p>
+
+<h3 id="s3.5">3.5 The read-only region</h3>
+
+<p>The read-only region is another special region that contains objects
+that are only meant to be read; attempting to modify an object in that
+region will result in a runtime error. To obtain a modifiable copy of
+such an object, the <tt><a href="#s3.9.29">CopyRegion</a></tt> primitive
+can be used.</p>
+
+<h3 id="s3.6">3.6 Migrating objects between regions</h3>
+
+<p>Objects can be migrated between regions using a number of functions.
+In order to migrate an object, the current thread must have exclusive
+access to that object; the object must be in its thread-local region or
+it must be in a shared region for which the current thread holds a write
+lock.</p>
+
+<p>The <tt><a href="#s3.9.9">ShareObj</a></tt> and <tt><a
+href="#s3.9.15">ShareSingleObj</a></tt> functions create a new shared
+region and migrate their respective argument to that region;
+<tt>ShareObj</tt> will also migrate all subobjects that are within the
+same region, while <tt>ShareSingleObj</tt> will leave the subobjects
+unaffected.</p>
+
+<p>The <tt><a href="#s3.9.21">MigrateObj</a></tt> and <tt><a
+href="#s3.9.22">MigrateSingleObj</a></tt> functions migrate objects to
+an existing region. The first argument of either function is the object
+to be migrated; the second is either a region (as returned by the <tt><a
+href="#s3.9.7">RegionOf</a></tt> function) or an object whose containing
+region the first argument is to be migrated to.</p>
+
+<p>The current thread needs exclusive access to the target region
+(denoted by the second argument) for the operation to succeed. If
+successful, the first argument will be in the same region as the second
+argument afterwards. In the case of <tt>MigrateObj</tt>, all subobjects
+within the same region as the first argument will also be migrated to
+the target region.</p>
+
+<p>Finally, <tt><a href="#s3.9.26">AdoptObj</a></tt> and <tt><a
+href="#s3.9.27">AdoptSingleObj</a></tt> are special cases of
+<tt>MigrateObj</tt> and <tt>MigrateSingleObj</tt>, where the target
+region is the thread-local region of the current thread.</p>
+
+<p>To migrate objects to the read-only region, one can use <tt><a
+href="#s3.9.35">MakeReadOnly</a></tt> and <tt><a
+href="#s3.9.36">MakeReadOnlyObj</a></tt>. The first migrates its
+argument and all its subjobjects that are within the same region to the
+read-only region; the second migrates only the argument itself, but not
+its subobjects.</p>
+
+<p>It is generally not possible to migrate objects explicitly to the
+public region; only objects with purely atomic operations can be made
+public and that is done automatically when they are created.</p>
+
+<p>The exception are immutable objects. When <tt>MakeImmutable</tt> is
+used, its argument is automatically moved to the public region.</p>
+
+<pre>
+gap&gt; RegionOf(MakeImmutable([1,2,3]));
+&lt;public region&gt;
+</pre>
+
+<h3 id="s3.7">3.7 Region names</h3>
+
+<p>Regions can be given names, either explicitly via <tt><a
+href="#s3.9.38">SetRegionName</a></tt> or when they are created via
+<tt><a href="#s3.9.9">ShareObj</a></tt> and <tt><a
+href="#s3.9.15">ShareSingleObj</a></tt>. Thread-local regions, the
+public, and the readonly region are given names by default.</p>
+
+<p>Multiple regions can have the same name.</p>
+
+<h3 id="s3.8">3.8 Controlling access to regions</h3>
+
+<p>If either GAP code or a kernel primitive attempts to access an object
+that it is not allowed to access according to these semantics, either a
+&quot;write guard error&quot; (for a failed write access) or a
+&quot;read guard error&quot; (for a failed read access) will be raised.
+The global variable <tt>LastInaccessible</tt> will contain the object
+that caused such an error.</p>
+
+<p>One exception is that threads can modify objects in regions that they
+have only read access (but not write access) to using write-once
+functions (Section <a href="#s3.11">3.11</a>).</p>
+
+<p>To inspect objects whose contents lie in other regions (and therefore
+cannot be displayed by <tt>PrintObj</tt> or <tt>ViewObj</tt>, the
+functions <tt><a href="#s3.9.41">ViewShared</a></tt> and <tt><a
+href="#s3.9.42">UNSAFE_VIEW</a></tt> can be used.</p>
+
+<h3 id="s3.9">3.9 Functions relating to regions</h3>
+
+<h3 id="s3.9.1">3.9.1 NewRegion(name|prec|name,prec)</h3>
+
+<p>The function <tt>NewRegion</tt> creates a new shared region. If the
+optional argument <tt>name</tt> is provided, then the name of the new
+region will be set to <tt>name</tt>.</p>
+
+<pre>
+gap&gt; NewRegion(&quot;example region&quot;);
+&lt;region: example region&gt;
+</pre>
+
+<p><tt>NewRegion</tt> will create a region with a high precedence level.
+It is intended to be called by user code. The exact precedence level can
+be adjusted with <tt>prec</tt>, which must be an integer in the range
+<tt>[-1000..1000]</tt>; <tt>prec</tt> will be added to the normal
+precedence level.</p>
+
+<h3 id="s3.9.2">3.9.2 NewLibraryRegion(name|prec|name,prec)</h3>
+
+<p><tt>NewLibraryRegion</tt> functions like <tt>NewRegion</tt>, except
+that the precedence of the region it creates is below that of
+<tt>NewRegion</tt>. It is intended to be used by user libraries and GAP
+packages.</p>
+
+<h3 id="s3.9.3">3.9.3 NewSystemRegion(name|prec|name,prec)</h3>
+
+<p><tt>NewSystemRegion</tt> functions like <tt>NewRegion</tt>, except
+that the precedence of the region it creates is below that of
+<tt>NewLibraryRegion</tt>. It is intended to be used by the standard GAP
+library.</p>
+
+<h3 id="s3.9.4">3.9.4 NewKernelRegion(name|prec|name,prec)</h3>
+
+<p><tt>NewKernelRegion</tt> functions like <tt>NewRegion</tt>, except
+that the precedence of the region it creates is below that of
+<tt>NewSystemRegion</tt>. It is intended to be used by the GAP kernel,
+and GAP library code that interacts closely with the kernel.</p>
+
+<h3 id="s3.9.5">3.9.5 NewInternalRegion([name])</h3>
+
+<p><tt>NewInternalRegion</tt> functions like <tt>NewRegion</tt>, except
+that the precedence of the region it creates is the lowest available. It
+is intended to be used for regions that are self-contained; i.e. no
+function that uses such a region may lock another region while accessing
+it. The precedence level of an internal region cannot be adjusted.</p>
+
+<h3 id="s3.9.6">3.9.6 NewSpecialRegion([name])</h3>
+
+<p><tt>NewLibraryRegion</tt> functions like <tt>NewRegion</tt>, except
+that the precedence of the region it creates is negative. It is thus
+exempt from normal ordering and deadlock checks.</p>
+
+<h3 id="s3.9.7">3.9.7 RegionOf(obj)</h3>
+
+<pre>
+gap&gt; RegionOf(1/2);
+&lt;public region&gt;
+gap&gt; RegionOf([1,2,3]);
+&lt;region: thread region #0&gt;
+gap&gt; RegionOf(ShareObj([1,2,3]));
+&lt;region 0x45deaa0&gt;
+gap&gt; RegionOf(ShareObj([1,2,3]));
+&lt;region 0x45deaa0&gt;
+gap&gt; RegionOf(ShareObj([1,2,3], &quot;test region&quot;));
+&lt;region: test region&gt;
+</pre>
+
+<p>Note that the unique number that each region is identified with is
+system-specific and can change each time the code is being run.</p>
+
+<p>Region objects returned by <tt>RegionOf</tt> can be compared:</p>
+
+<pre>
+gap&gt; RegionOf([1,2,3]) = RegionOf([4,5,6]);
+true
+</pre>
+
+<p>The result in this example is true because both lists are in the same
+thread-local region.</p>
+
+<h3 id="s3.9.8">3.9.8 RegionPrecedence(obj)</h3>
+
+<p><tt>RegionPrecedence</tt> will return the precedence of the region of
+<tt>obj</tt>.</p>
+
+<pre>
+gap&gt; RegionPrecedence(NewRegion(&quot;Test&quot;));
+30000
+gap&gt; RegionPrecedence(NewRegion(&quot;Test2&quot;, 1));
+30001
+gap&gt; RegionPrecedence(NewLibraryRegion(&quot;LibTest&quot;, -1));
+19999
+</pre>
+
+<h3 id="s3.9.9">3.9.9 ShareObj(obj[, name|, prec|, name, prec])</h3>
+
+<p>The <tt>ShareObj</tt> function creates a new shared region and
+migrates the object and all its subobjects to that region. If the
+optional argument <tt>name</tt> is provided, then the name of the new
+region is set to <tt>name</tt>.</p>
+
+<p><tt>ShareObj</tt> will create a region with a high precedence level.
+It is intended to be called by user code. The actual precedence level
+can be adjusted by the optional <tt>prec</tt> argument in the same way
+as for <tt>NewRegion</tt>.</p>
+
+<h3 id="s3.9.10">3.9.10 ShareLibraryObj(obj[, name|, prec|, name,
+prec])</h3>
+
+<p><tt>ShareLibraryObj</tt> functions like <tt>ShareObj</tt>, except
+that the precedence of the region it creates is below that of
+<tt>ShareObj</tt>. It is intended to be used by user libraries and GAP
+packages.</p>
+
+<h3 id="s3.9.11">3.9.11 ShareSystemObj(obj[, name|, prec|, name,
+prec])</h3>
+
+<p><tt>ShareSystemObj</tt> functions like <tt>ShareObj</tt>, except that
+the precedence of the region it creates is below that of
+<tt>ShareLibraryObj</tt>. It is intended to be used by the standard GAP
+library.</p>
+
+<h3 id="s3.9.12">3.9.12 ShareKernelObj(obj[, name|, prec|, name,
+prec])</h3>
+
+<p><tt>ShareKernelObj</tt> functions like <tt>ShareObj</tt>, except that
+the precedence of the region it creates is below that of
+<tt>ShareSystemObj</tt>. It is intended to be used by the GAP kernel,
+and GAP library code that interacts closely with the kernel.</p>
+
+<h3 id="s3.9.13">3.9.13 ShareInternalObj(obj[, name])</h3>
+
+<p><tt>ShareInternalObj</tt> functions like <tt>ShareObj</tt>, except
+that the precedence of the region it creates is the lowest available. It
+is intended to be used for regions that are self-contained; i.e. no
+function that uses such a region may lock another region while accessing
+it.</p>
+
+<h3 id="s3.9.14">3.9.14 ShareSpecialObj(obj[, name])</h3>
+
+<p><tt>ShareLibraryObj</tt> functions like <tt>ShareObj</tt>, except
+that the precedence of the region it creates is negative. It is thus
+exempt from normal ordering and deadlock checks.</p>
+
+<h3 id="s3.9.15">3.9.15 ShareSingleObj(obj[, name|, prec|, name,
+prec])</h3>
+
+<p>The <tt>ShareSingleObj</tt> function creates a new shared region and
+migrates the object, but not its subobjects, to that region. If the
+optional argument <tt>name</tt> is provided, then the name of the new
+region is set to <tt>name</tt>.</p>
+
+<pre>
+gap&gt; m := [ [1, 2], [3, 4] ];;
+gap&gt; ShareSingleObj(m);;
+gap&gt; atomic readonly m do
+&gt;      Display([ IsShared(m), IsShared(m[1]), IsShared(m[2]) ]);
+&gt;    od;
+[ true, false, false ]
+</pre>
+
+<p><tt>ShareSingleObj</tt> will create a region with a high precedence
+level. It is intended to be called by user code. The actual precedence
+level can be adjusted by the optional <tt>prec</tt> argument in the same
+way as for <tt>NewRegion</tt>.</p>
+
+<h3 id="s3.9.16">3.9.16 ShareSingleLibraryObj(obj[, name|, prec|, name,
+prec])</h3>
+
+<p><tt>ShareSingleLibraryObj</tt> functions like
+<tt>ShareSingleObj</tt>, except that the precedence of the region it
+creates is below that of <tt>ShareSingleObj</tt>. It is intended to be
+used by user libraries and GAP packages.</p>
+
+<h3 id="s3.9.17">3.9.17 ShareSingleSystemObj(obj[, name|, prec|, name,
+prec])</h3>
+
+<p><tt>ShareSingleSystemObj</tt> functions like <tt>ShareSingleObj</tt>,
+except that the precedence of the region it creates is below that of
+<tt>ShareSingleLibraryObj</tt>. It is intended to be used by the
+standard GAP library.</p>
+
+<h3 id="s3.9.18">3.9.18 ShareSingleKernelObj(obj[, name|, prec|, name,
+prec])</h3>
+
+<p><tt>ShareSingleKernelObj</tt> functions like <tt>ShareSingleObj</tt>,
+except that the precedence of the region it creates is below that of
+<tt>ShareSingleSystemObj</tt>. It is intended to be used by the GAP
+kernel, and GAP library code that interacts closely with the kernel.</p>
+
+<h3 id="s3.9.19">3.9.19 ShareSingleInternalObj(obj[, name])</h3>
+
+<p><tt>ShareSingleInternalObj</tt> functions like
+<tt>ShareSingleObj</tt>, except that the precedence of the region it
+creates is the lowest available. It is intended to be used for regions
+that are self-contained; i.e. no function that uses such a region may
+lock another region while accessing it.</p>
+
+<h3 id="s3.9.20">3.9.20 ShareSingleSpecialObj(obj[, name])</h3>
+
+<p><tt>ShareSingleLibraryObj</tt> functions like
+<tt>ShareSingleObj</tt>, except that the precedence of the region it
+creates is negative. It is thus exempt from normal ordering and deadlock
+checks.</p>
+
+<h3 id="s3.9.21">3.9.21 MigrateObj(obj, target)</h3>
+
+<p>The <tt>MigrateObj</tt> function migrates <tt>obj</tt> (and all
+subobjects contained within the same region) to the region denoted by
+the <tt>target</tt> argument. Here, <tt>target</tt> can either be a
+region object returned by <tt>RegionOf</tt> or a normal gap object. If
+<tt>target</tt> is a normal gap object, <tt>obj</tt> will be migrated to
+the region containing <tt>target</tt>.</p>
+
+<p>For the operation to succeed, the current thread must have exclusive
+access to the target region and the object being migrated.</p>
+
+<h3 id="s3.9.22">3.9.22 MigrateSingleObj(obj, target)</h3>
+
+<p>The <tt>MigrateSingleObj</tt> function works like <tt><a
+href="#s3.9.21">MigrateObj</a></tt>, except that it does not migrate the
+subobjects of <tt>obj</tt>.</p>
+
+<h3 id="s3.9.23">3.9.23 LockAndMigrateObj(obj, target)</h3>
+
+<p>The <tt>LockAndMigrateObj</tt> function works like <tt><a
+href="#s3.9.21">MigrateObj</a></tt>, except that it will automatically
+try to acquire a lock for the region containing <tt>target</tt> if it
+does not have one already.</p>
+
+<h3 id="s3.9.24">3.9.24 IncorporateObj(target, index, value)</h3>
+
+<p>The <tt>IncorporateObj</tt> function allows convenient migration to a
+shared list or record. If <tt>target</tt> is a list, then
+<tt>IncorporateObj</tt> is equivalent to:</p>
+
+<pre>
+IncorporateObj := function(target, index, value)
+  atomic value do
+    target[index] := MigrateObj(value, target)
+  od;
+end;
+</pre>
+
+<p>If <tt>target</tt> is a record, then it is equivalent to:</p>
+
+<pre>
+IncorporateObj := function(target, index, value)
+  atomic value do
+    target.(index) := MigrateObj(value, target)
+  od;
+end;
+</pre>
+
+<p>The intended purpose is the population of a shared list or record
+with values after its creation.</p>
+
+<p>Example:</p>
+
+<pre>
+gap&gt; list := ShareObj([]);
+gap&gt; atomic list do
+&gt;      IncorporateObj(list, 1, [1,2,3]);
+&gt;      IncorporateObj(list, 2, [4,5,6]);
+&gt;      IncorporateObj(list, 3, [7,8,9]);
+&gt;    od;
+gap&gt; ViewShared(list);
+[ [ 1, 2, 3 ], [ 4, 5, 6 ], [ 7, 8, 9 ] ]
+</pre>
+
+<p>Using plain assignment would leave the newly created lists in the
+thread-local region.</p>
+
+<h3 id="s3.9.25">3.9.25 AtomicIncorporateObj(target, index, value)</h3>
+
+<p><tt>AtomicIncorporateObj</tt> extends <tt>IncorporateObj</tt> by also
+locking the target. I.e., for a list, it is equivalent to:</p>
+
+<pre>
+AtomicIncorporateObj := function(target, index, value)
+  atomic value do
+    target[index] := MigrateObj(value, target)
+  od;
+end;
+</pre>
+
+<p>If <tt>target</tt> is a record, then it is equivalent to:</p>
+
+<pre>
+AtomicIncorporateObj := function(target, index, value)
+  atomic value do
+    target.(index) := MigrateObj(value, target)
+  od;
+end;
+</pre>
+
+<h3 id="s3.9.26">3.9.26 AdoptObj(obj)</h3>
+
+<p>The <tt>AdoptObj</tt> function migrates <tt>obj</tt> (and all its
+subobjects contained within the same region) to the thread&#39;s current
+region. It requires exclusive access to <tt>obj</tt>.</p>
+
+<pre>
+gap&gt; l := ShareObj([1,2,3]);;
+gap&gt; IsThreadLocal(l);
+false
+gap&gt; atomic l do AdoptObj(l); od;
+gap&gt; IsThreadLocal(l);
+true
+</pre>
+
+<h3 id="s3.9.27">3.9.27 AdoptSingleObj(obj)</h3>
+
+<p>The <tt>AdoptSingleObj</tt> function works like <tt><a
+href="#s3.9.26">AdoptObj</a></tt>, except that it does not migrate the
+subobjects of <tt>obj</tt>.</p>
+
+<h3 id="s3.9.28">3.9.28 LockAndAdoptObj(obj)</h3>
+
+<p>The <tt>LockAndAdoptObj</tt> function works like <tt><a
+href="#s3.9.26">AdoptObj</a></tt>, except that it will attempt acquire
+an exclusive lock for the region containing <tt>obj</tt> if it does not
+have one already.</p>
+
+<h3 id="s3.9.29">3.9.29 CopyRegion(obj)</h3>
+
+<p>The <tt>CopyRegion</tt> function performs a structural copy of
+<tt>obj</tt>. The resulting objects will be located in the current
+thread&#39;s thread-local region. The function returns the copy as its
+result.</p>
+
+<pre>
+gap&gt; l := MakeReadOnly([1,2,3]);
+[ 1, 2, 3 ]
+gap&gt; l2 := CopyRegion(l);
+[ 1, 2, 3 ]
+gap&gt; RegionOf(l) = RegionOf(l2);
+false
+gap&gt; IsIdenticalObj(l, l2);
+false
+gap&gt; l = l2;
+true
+</pre>
+
+<h3 id="s3.9.30">3.9.30 IsPublic(obj)</h3>
+
+<p>The <tt>IsPublic</tt> function returns true if its argument is an
+object in the public region, false otherwise.</p>
+
+<pre>
+gap&gt; IsPublic(1/2);
+true
+gap&gt; IsPublic([1,2,3]);
+false
+gap&gt; IsPublic(ShareObj([1,2,3]));
+false
+gap&gt; IsPublic(MakeImmutable([1,2,3]));
+true
+</pre>
+
+<h3 id="s3.9.31">3.9.31 IsThreadLocal(obj)</h3>
+
+<p>The <tt>IsThreadLocal</tt> function returns true if its argument is
+an object in the current thread&#39;s thread-local region, false
+otherwise.</p>
+
+<pre>
+gap&gt; IsThreadLocal([1,2,3]);
+true
+gap&gt; IsThreadLocal(ShareObj([1,2,3]));
+false
+gap&gt; IsThreadLocal(1/2);
+false
+gap&gt; RegionOf(1/2);
+&lt;public region&gt;
+</pre>
+
+<h3 id="s3.9.32">3.9.32 IsShared(obj)</h3>
+
+<p>The <tt>IsShared</tt> function returns true if its argument is an
+object in a shared region. Note that if the current thread does not hold
+a lock on that shared region, another thread can migrate <tt>obj</tt> to
+a different region before the result is being evaluated; this can lead
+to race conditions. The function is intended primarily for debugging,
+not to build actual program logic around.</p>
+
+<h3 id="s3.9.33">3.9.33 HaveReadAccess(obj)</h3>
+
+<p>The <tt>HaveReadAccess</tt> function returns true if the current
+thread has read access to <tt>obj</tt>.</p>
+
+<pre>
+gap&gt; HaveReadAccess([1,2,3]);
+true
+gap&gt; l := ShareObj([1,2,3]);;
+gap&gt; HaveReadAccess(l);
+false
+gap&gt; atomic readonly l do t := HaveReadAccess(l); od;; t;
+true
+</pre>
+
+<h3 id="s3.9.34">3.9.34 HaveWriteAccess(obj)</h3>
+
+<p>The <tt>HaveWriteAccess</tt> function returns true if the current
+thread has write access to <tt>obj</tt>.</p>
+
+<pre>
+gap&gt; HaveWriteAccess([1,2,3]);
+true
+gap&gt; l := ShareObj([1,2,3]);;
+gap&gt; HaveWriteAccess(l);
+false
+gap&gt; atomic readwrite l do t := HaveWriteAccess(l); od;; t;
+true
+</pre>
+
+<h3 id="s3.9.35">3.9.35 MakeReadOnly(obj)</h3>
+
+<p>The <tt>MakeReadOnly</tt> function migrates <tt>obj</tt> and all its
+subobjects that are within the same region as <tt>obj</tt> to the
+read-only region. It returns <tt>obj</tt>.</p>
+
+<h3 id="s3.9.36">3.9.36 MakeReadOnlyObj(obj)</h3>
+
+<p>The <tt>MakeReadOnlyObj</tt> function migrates <tt>obj</tt>, but not
+any of its subobjects, to the read-only region. It returns
+<tt>obj</tt>.</p>
+
+<h3 id="s3.9.37">3.9.37 IsReadOnly(obj)</h3>
+
+<p>The <tt>IsReadOnly</tt> function returns true if <tt>obj</tt> is in
+the read-only region, false otherwise.</p>
+
+<pre>
+gap&gt; IsReadOnly([1,2,3]);
+false
+gap&gt; IsReadOnly(MakeImmutable([1,2,3]));
+false
+gap&gt; IsReadOnly(MakeReadOnly([1,2,3]));
+true
+</pre>
+
+<h3 id="s3.9.38">3.9.38 SetRegionName(obj, name)</h3>
+
+<p>The <tt>SetRegionName</tt> function sets the name of the region of
+<tt>obj</tt> to <tt>name</tt>.</p>
+
+<h3 id="s3.9.39">3.9.39 ClearRegionName(obj</h3>
+
+<p>The <tt>ClearRegionName</tt> function clears the name of the region
+of <tt>obj</tt> to <tt>name</tt>.</p>
+
+<h3 id="s3.9.40">3.9.40 RegionName(obj)</h3>
+
+<p>The <tt>RegionName</tt> function returns the name of the region of
+<tt>obj</tt>. If that region does not have a name, <tt>fail</tt> will be
+returned.</p>
+
+<h3 id="s3.9.41">3.9.41 ViewShared(obj)</h3>
+
+<p>The <tt>ViewShared</tt> function allows the inspection of objects in
+shared regions. It will try to lock the region and then call
+<tt>ViewObj(obj)</tt>. If it cannot acquire a lock for the region, it
+will simply display the normal description of the object.</p>
+
+<h3 id="s3.9.42">3.9.42 UNSAFE_VIEW(obj)</h3>
+
+<p>The <tt>UNSAFE_VIEW</tt> function allows the inspection of any object
+in the system, regardless of whether the current thread has access to
+the region containing it. It should be used with care: If the object
+inspected is being modified by another thread concurrently, the
+resulting behavior is undefined.</p>
+
+<p>Moreover, the function works by temporarily disabling read and write
+guards for regions, so other threads may corrupt memory rather than
+producing errors.</p>
+
+<p>It is generally safe to use if all threads but the current one are
+paused.</p>
+
+<h3 id="s3.9.43">3.9.43 The <tt>atomic</tt> statement.</h3>
+
+<p>The <tt>atomic</tt> statement ensures exclusive or read-only access
+to one or more shared regions for statements within its scope. It has
+the following syntax:</p>
+
+<pre>
+atomic ([readwrite|readonly] expr (, expr)* )* do
+  statements
+od;
+</pre>
+
+<p>Each expression is evaluated and the region containing the resulting
+object is locked with either a read-write or read-only lock, depending
+on the keyword preceding the expression. If neither the
+<tt>readwrite</tt> nor the <tt>readonly</tt> keyword was provided,
+read-write locks are used by default.</p>
+
+<p>Examples:</p>
+
+<pre>
+gap&gt; l := ShareObj([1,2,3]);;
+gap&gt; atomic readwrite l do l[3] := 9; od;
+gap&gt; atomic l do l[2] := 4; od;
+gap&gt; atomic readonly l do Display(l); od;
+[ 1, 4, 9 ]
+</pre>
+
+<pre>
+gap&gt; l := ShareObj([1,2,3,4,5]);;
+gap&gt; l2 := ShareObj([6,7,8]);;
+gap&gt; atomic readwrite l, readonly l2 do
+&gt;      for i in [1..3] do l[i] := l2[i]; od;
+&gt;      l3 := AdoptObj(l);
+&gt;    od;
+gap&gt; l3;
+[ 6, 7, 8, 4, 5 ]
+</pre>
+
+<p>Atomic statements must observe region ordering. That means that the
+highest precedence level of a region locked by an atomic statement must
+be less than the lowest precedene level of a region that is locked by
+the same thread at the time the atomic statement is executed.</p>
+
+<h3 id="s3.10">3.10 Atomic functions</h3>
+
+<p>Instead of atomic regions, entire functions can be declared to be
+atomic. This has the same effect as though the function&#39;s body were
+enclosed in an atomic statement. Function arguments can be declared
+either <tt>readwrite</tt> or <tt>readonly</tt>; they will be locked in
+the same way as for a lock statement. If a function argument is preceded
+by neither <tt>readwrite</tt> nor <tt>readonly</tt>, the corresponding
+object will not be locked.</p>
+
+<p>Example:</p>
+
+<pre>
+gap&gt; AddAtomic := atomic function(readwrite list, readonly item)
+&gt;      Add(list, item);
+&gt;    end;
+</pre>
+
+<h3 id="s3.11">3.11 Write-once functionality</h3>
+
+<p>There is an exception to the rule that objects can only be modified
+if a thread has write access to a region. A limited sets of objects can
+be modified using the &quot;bind once&quot; family of functions. These
+allow the modifications of objects to which a thread has read access in
+a limited fashion.</p>
+
+<p>For reasons of implementation symmetry, these functions can also be
+used on the atomic versions of these objects.</p>
+
+<p>Implementation note: The functionality is not currently available for
+component objects.</p>
+
+<h3 id="s3.12">3.12 BindOnce(obj, index, value)</h3>
+
+<p><tt>BindOnce</tt> modifies <tt>obj</tt>, which can be a positional
+object, atomic positional object, component object, or atomic component
+object. It inspects <tt>obj![index]</tt> for the positional versions or
+<tt>obj!.(index)</tt> for the component versions. If the respective
+element is not yet bound, <tt>value</tt> is assigned to that element.
+Otherwise, no modification happens. The test and modification occur as
+one atomic step. The function returns the value of the element; i.e. the
+old value if the element was bound and <tt>value</tt> if it was
+unbound.</p>
+
+<p>The intent of this function is to allow concurrent initialization of
+objects, where multiple threads may attempt to set a value concurrently.
+Only one will succeed; all threads can then use the return value of
+<tt>BindOnce</tt> as the definitive value of the element. It also allows
+for the lazy initialization of objects in the read-only region.</p>
+
+<p>The current thread needs to have at least read access to
+<tt>obj</tt>, but does not require write access.</p>
+
+<h3 id="s3.13">3.13 TestBindOnce(obj, index, value)</h3>
+
+<p><tt>TestBindOnce</tt> works like <tt>BindOnce</tt>, except that it
+returns <tt>true</tt> if the value could be bound and <tt>false</tt>
+otherwise.</p>
+
+<h3 id="s3.14">3.14 BindOnceExpr(obj, index, expr)</h3>
+
+<p><tt>BindOnceExpr</tt> works like <tt>BindOnce</tt>, except that it
+evaluates the parameterless function <tt>expr</tt> to determine the
+value. It will only evaluate <tt>expr</tt> if the element is not
+bound.</p>
+
+<p>For positional objects, the implementation works as follows:</p>
+
+<pre>
+BindOnceExprPosObj := function(obj, index, expr)
+  if not IsBound(obj![index]) then
+    return BindOnce(obj, index, expr());
+  else
+    return obj![index]);
+  fi;
+end;
+</pre>
+
+<p>The implementation for component objects works analogously.</p>
+
+<p>The intent is to avoid unnecessary computations if the value is
+already bound. Note that this cannot be avoided entirely, because
+<tt>obj![index]</tt> or <tt>obj!.(index)</tt> can be bound while
+<tt>expr</tt> is evaluated, but it can minimize such occurrences.</p>
+
+<h3 id="s3.15">3.15 TestBindOnceExpr(obj, index, expr)</h3>
+
+<p><tt>TestBindOnceExpr</tt> works like <tt>BindOnceExpr</tt>, except
+that it returns <tt>true</tt> if the value could be bound and
+<tt>false</tt> otherwise.</p>
+
+<h3 id="s3.16">3.16 StrictBindOnce(obj, index, expr)</h3>
+
+<p><tt>StrictBindOnce</tt> works like <tt>BindOnce</tt>, except that it
+raises an error if the element is already bound. This is intended for
+cases where a read-only object is initialized, but where another thread
+trying to initialize it concurrently would be an error.</p>
+
+<hr>
+<h2 id="s4.">4. Console User Interface</h2>
+
+<p>HPC-GAP has a multi-threaded user interface to assist with the
+development and debugging of concurrent programs. This user interface is
+enabled by default; to disable it, and use the single-threaded
+interface, GAP has to be started with the <tt>-S</tt> option.</p>
+
+<h3 id="s4.1">4.1 Console UI commands</h3>
+
+<p>The console user interface provides the user with the option to
+control threads by commands prefixed with an exclamation mark
+(&quot;!&quot;). Those commands are listed below.</p>
+
+<p>For ease of use, users only need to type as many letters of each
+commands so that it can be unambiguously selected. Thus, the shell will
+recognize <tt>!l</tt> as an abbreviation for <tt>!list</tt>.</p>
+
+<h3 id="s4.1.1">4.1.1 !shell [&lt;name&gt;]</h3>
+
+<p>Starts a new shell thread and switches to it. Optionally, a name for
+the thread can be provided.</p>
+
+<pre>
+gap&gt; !shell
+--- Switching to thread 4
+[4] gap&gt; 
+</pre>
+
+<h3 id="s4.1.2">4.1.2 !fork [&lt;name&gt;]</h3>
+
+<p>Starts a new background shell thread. Optionally, a name for the
+thread can be provided.</p>
+
+<pre>
+gap&gt; !fork
+--- Created new thread 5
+</pre>
+
+<h3 id="s4.1.3">4.1.3 !list</h3>
+
+<p>List all current threads that are interacting with the user. This
+does not list threads created with <tt>CreateThread()</tt> that have not
+entered a break loop.</p>
+
+<pre>
+gap&gt; !list
+--- Thread 0 [0]
+--- Thread 4 [4]
+--- Thread 5 [5] (pending output)
+</pre>
+
+<h3 id="s4.1.4">4.1.4 !kill &lt;id&gt;</h3>
+
+<p>Terminates the specified thread.</p>
+
+<h3 id="s4.1.5">4.1.5 !break &lt;id&gt;</h3>
+
+<p>Makes the specified thread enter a break loop.</p>
+
+<h3 id="s4.1.6">4.1.6 !name [&lt;id&gt;] &lt;name&gt;</h3>
+
+<p>Give the thread with the numerical identifier or name
+<tt>&lt;id&gt;</tt> the name name.</p>
+
+<pre>
+gap&gt; !name 5 test
+gap&gt; !list
+--- Thread 0 [0]
+--- Thread 4 [4]
+--- Thread test [5] (pending output)
+</pre>
+
+<h3 id="s4.1.7">4.1.7 !info &lt;id&gt;</h3>
+
+<p>Provide information about the thread with the numerical identifier or
+name <tt>&lt;id&gt;</tt>. (/Not yet implemented./}</p>
+
+<h3 id="s4.1.8">4.1.8 !hide [&lt;id&gt;|*]</h3>
+
+<p>Hide output from the thread with the numerical identifier or name
+<tt>&lt;id&gt;</tt> when it is not the foreground thread. If no thread
+is specified, make this the default behavior for future threads.</p>
+
+<h3 id="s4.1.9">4.1.9 !watch [&lt;id&gt;|*]</h3>
+
+<p>Show output from the thread with the numerical identifier or name
+<tt>&lt;id&gt;</tt> even when it is not the foreground thread. If no
+thread is specified, make this the default behavior for future
+threads.</p>
+
+<h3 id="s4.1.10">4.1.10 !keep &lt;num&gt;</h3>
+
+<p>Keep <tt>&lt;num&gt;</tt> lines of output from each thread.</p>
+
+<h3 id="s4.1.11">4.1.11 !prompt (&lt;id&gt;|*) &lt;string&gt;</h3>
+
+<p>Set the prompt for the specified thread (or for all newly created
+threads if <tt>*</tt> was specified) to be <tt>&lt;string&gt;</tt>. If
+the string contains the pattern <tt>%id%</tt>, it is replaced with the
+numerical id of the thread; if it contains the pattern <tt>%name%</tt>,
+it is replaced with the name of the thread; if the thread has no name,
+the numerical id is displayed instead.</p>
+
+<h3 id="s4.1.12">4.1.12 !prefix (&lt;id&gt;|*) &lt;string&gt;</h3>
+
+<p>Prefix the output from the specified thread (or for all newly created
+threads if <tt>*</tt> was specified) wiht <tt>&lt;string&gt;</tt>. The
+same substitution rules as for the <tt>!prompt</tt> command apply.</p>
+
+<h3 id="s4.1.13">4.1.13 !select &lt;id&gt;</h3>
+
+<p>Make the specified thread the foreground thread.</p>
+
+<pre>
+gap&gt; !select 4
+gap&gt; !select 4
+--- Switching to thread 4
+[4] gap&gt; 
+</pre>
+
+<h3 id="s4.1.14">4.1.14 !next</h3>
+
+<p>Make the next thread in numerical order the foreground thread.</p>
+
+<h3 id="s4.1.15">4.1.15 !previous</h3>
+
+<p>Make the previous thread in numerical order the foreground
+thread.</p>
+
+<h3 id="s4.1.16">4.1.16 !replay &lt;num&gt; [&lt;id&gt;]</h3>
+
+<p>Display the last <tt>&lt;num&gt;</tt> lines of output of the
+specified thread. If no thread was specified, display the last
+<tt>&lt;num&gt;</tt> lines of the current foreground thread.</p>
+
+<h3 id="s4.1.17">4.1.17 !&lt;id&gt;</h3>
+
+<p><tt>!&lt;id&gt;</tt> is a shortcut for <tt>!select
+&lt;id&gt;</tt>.</p>
+
+<h3 id="s4.1.18">4.1.18 !source &lt;file&gt;</h3>
+
+<p>Read commands from file <tt>&lt;file&gt;</tt>.</p>
+
+<h3 id="s4.1.19">4.1.19 !alias &lt;shortcut&gt; &lt;expansion&gt;</h3>
+
+<p>Create an alias. After defining the alias, <tt>!&lt;shortcut&gt;
+&lt;rest of line&gt;</tt> will be replaced with <tt>!&lt;expansion&gt;
+&lt;rest of line&gt;</tt>.</p>
+
+<h3 id="s4.1.20">4.1.20 !unalias &lt;shortcut&gt;</h3>
+
+<p>Removes the specified alias.</p>
+
+<h3 id="s4.1.21">4.1.21 !eval &lt;gap code&gt;</h3>
+
+<p>Evaluates <tt>&lt;gap code&gt;</tt> as a command.</p>
+
+<h3 id="s4.1.22">4.1.22 !run &lt;function&gt; &lt;string&gt;</h3>
+
+<p>Calls the function with name <tt>&lt;function&gt;</tt>, passing it
+the single argument <tt>&lt;string&gt;</tt> as a GAP string.</p>
+
+<h3 id="s4.2">4.2 GAP functions to access the Shell UI</h3>
+
+<p>There are several functions to access the basic functionality of the
+shell user interface. Other than <tt><a
+href="#s4.2.1">TextUIRegisterCommand</a></tt>, they can only be called
+from within a registered command.</p>
+
+<p>Threads can be specified either by their numerical identifier or by
+their name (as a string). The empty string can be used to specify the
+current foreground thread.</p>
+
+<h3 id="s4.2.1">4.2.1 TextUIRegisterCommand(name, func)</h3>
+
+<p>Registers the command <tt>!name</tt> with the shell UI. It will call
+&lt;func&gt; with the rest of the command line passed as a string
+argument when typed.</p>
+
+<h3 id="s4.2.2">4.2.2 TextUIForegroundThread()</h3>
+
+<p>Returns the numerical identifier of the current foreground
+thread.</p>
+
+<h3 id="s4.2.3">4.2.3 TextUIForegroundThreadName()</h3>
+
+<p>Returns the name of the current foreground thread or <tt>fail</tt> if
+the current foreground thread has no name.</p>
+
+<h3 id="s4.2.4">4.2.4 TextUISelectThread(id)</h3>
+
+<p>Makes <tt>id</tt> the current foreground thread. Returns
+<tt>true</tt> or <tt>false</tt> to indicate success.</p>
+
+<h3 id="s4.2.5">4.2.5 TextUIOutputHistory(id, count)</h3>
+
+<p>Returns the last <tt>count</tt> lines of the thread specified by
+<tt>id</tt> (which can be a numerical identifier or a name). Returns
+<tt>fail</tt> if there is no such thread.</p>
+
+<h3 id="s4.2.6">4.2.6 TextUISetOutputHistoryLength(length)</h3>
+
+<p>By default, retain <tt>length</tt> lines of output history from each
+thread.</p>
+
+<h3 id="s4.2.7">4.2.7 TextUINewSession(foreground, name)</h3>
+
+<p>Creates a new shell thread. Here, <tt>foreground</tt> is a boolean
+variable specifying whether it should be made the new foreground thread
+and <tt>name</tt> is the name of the thread. The empty string can be
+used to leave the thread without a name.</p>
+
+<h3 id="s4.2.8">4.2.8 TextUIRunCommand(command)</h3>
+
+<p>Run the command denoted by <tt>command</tt> as though a user had
+typed it. The command must not contain a newline character.</p>
+
+<h3 id="s4.2.9">4.2.9 TextUIWritePrompt()</h3>
+
+<p>Display a prompt for the current thread.</p>
+
+<hr>
+<h2 id="s5.">5. Atomic objects</h2>
+
+<p>HPC-GAP provides a number of atomic object types. These can be
+accessed by multiple threads concurrently without requiring explicit
+synchronization, but can have non-deterministic behavior for complex
+operations.</p>
+
+<p>Atomic lists are fixed-size lists; they can be assigned to and read
+from like normal plain lists.</p>
+
+<p>Atomic records are atomic versions of plain records. Unlike plain
+records, though, it is not possible to delete elements from an atomic
+record.</p>
+
+<p>The primary use of atomic lists and records is to facilitate storing
+the result of idempotent operations and to support certain low-level
+operations.</p>
+
+<p>Atomic lists and records can have three different replacement
+policies: write-once, strict write-once, and rewritable. The replacement
+policy determines whether an already assigned element can be changed.
+The write-once policy allows elements to be assigned only once, with
+subsequent assignments being ignored; the strict write-once policy
+allows elements also to be assigned only once, but subsequent
+assignments will raise an error; the rewritable policy allows elements
+to be assigned different values repeatedly. The default for new atomic
+objects is to be rewritable.</p>
+
+<p>Thread-local records are variants of plain records that are
+replicated on a per-thread basis.</p>
+
+<h3 id="s5.1">5.1 Atomic lists</h3>
+
+<p>Atomic lists are created using the <tt>AtomicList</tt> or
+<tt>FixedAtomicList</tt> functions. After creation, they can be used
+exactly like any other list, except that atomic lists created with
+<tt>FixedAtomicList</tt> cannot be resized. Their contents can also be
+read as normal plain lists using <tt>FromAtomicList</tt>.</p>
+
+<pre>
+gap&gt; a := AtomicList([1,2,4]);
+&lt;atomic list of size 3&gt;
+gap&gt; WaitTask(RunTask(function() a[1] := a[1] + a[2]; end));
+gap&gt; a[1];
+3
+gap&gt; FromAtomicList(a);
+[ 3, 2, 4 ]
+</pre>
+
+<p>Because multiple threads can read and write the list concurrently
+without synchronization, the results of modifying the list may be
+non-deterministic.</p>
+
+<p>It is faster to write to fixed atomic lists than to a resizable
+atomic list.</p>
+
+<h3 id="s5.1.1">5.1.1 AtomicList(list | count, obj)</h3>
+
+<p><tt>AtomicList</tt> is used to create a new atomic list. It takes
+either a plain list as an argument, in which case it will create a new
+atomic list of the same size, populated by the same elements; or it
+takes a count and an object argument. In that case, it creates an atomic
+list with <tt>count</tt> elements, each set to the value of
+<tt>obj</tt>.</p>
+
+<pre>
+gap&gt; al := AtomicList([3, 1, 4]);
+&lt;atomic list of size 3&gt;
+gap&gt; al[3];
+4
+gap&gt; al := AtomicList(10, `&quot;alpha&quot;);
+&lt;atomic list of size 10&gt;
+gap&gt; al[3];
+&quot;alpha&quot;
+gap&gt; WaitTask(RunTask(function() al[3] := `&quot;beta&quot;; end));
+gap&gt; al[3];
+&quot;beta&quot;
+</pre>
+
+<h3 id="s5.1.2">5.1.2 FixedAtomicList(list | count, obj)</h3>
+
+<p><tt>FixedAtomicList</tt> works like <tt><a
+href="#s5.1.1">AtomicList</a></tt> except that the resulting list cannot
+be resized.</p>
+
+<h3 id="s5.1.3">5.1.3 MakeFixedAtomicList(list)</h3>
+
+<p><tt>MakeFixedAtomicList</tt> turns a resizable atomic list into a
+fixed atomic list.</p>
+
+<pre>
+gap&gt; a := AtomicList([99]);
+&lt;atomic list of size 1&gt;
+gap&gt; a[2] := 100;
+100
+gap&gt; MakeFixedAtomicList(a);
+&lt;fixed atomic list of size 2&gt;
+gap&gt; a[3] := 101;
+Error, Atomic List Element: &lt;pos&gt;=3 is an invalid index for &lt;list&gt;
+</pre>
+
+<h3 id="s5.1.4">5.1.4 FromAtomicList(atomic_list)</h3>
+
+<p><tt>FromAtomicList</tt> returns a plain list containing the same
+elements as <tt>atomic_list</tt> at the time of the call. Because other
+threads can write concurrently to that list, the result is not
+guaranteed to be deterministic.</p>
+
+<pre>
+gap&gt; al := AtomicList([10, 20, 30]);;
+gap&gt; WaitTask(RunTask(function() al[2] := 40; end));
+gap&gt; FromAtomicList(al);
+[ 10, 40, 30 ]
+</pre>
+
+<h3 id="s5.2">5.2 ATOMIC_ADDITION(atomic_list, index, value)</h3>
+
+<p><tt>ATOMIC_ADDITION</tt> is a low-level operation that atomically
+adds <tt>value</tt> to <tt>atomic_list[index]</tt>. It returns the value
+of atomic_list[index] after the addition has been performed.</p>
+
+<pre>
+gap&gt; al := FixedAtomicList([4,5,6]);;
+gap&gt; ATOMIC_ADDITION(al, 2, 7);
+12
+gap&gt; FromAtomicList(al);
+[ 4, 12, 6 ]
+</pre>
+
+<h3 id="s5.3">5.3 COMPARE_AND_SWAP(atomic_list, index, old, new)</h3>
+
+<p><tt>COMPARE_AND_SWAP</tt> is an atomic operation. It atomically
+compares <tt>atomic_list[index]</tt> to <tt>old</tt> and, if they are
+identical,  replaces the value (in the same atomic step) with
+<tt>new</tt>. It returns true if the replacement took place, false
+otherwise.</p>
+
+<p>The primary use of <tt>COMPARE_AND_SWAP</tt> is to implement certain
+concurrency primitives; most programmers will not need to use it.</p>
+
+<h3 id="s5.4">5.4 Atomic records and component objects</h3>
+
+<p>Atomic records are atomic counterparts to plain records. They support
+assignment to individual record fields, and conversion to and from plain
+records.</p>
+
+<p>Assignment semantics can be specified on a per-record basis if the
+assigned record field is already populated, allowing either an
+overwrite, keeping the existing value, or raising an error.</p>
+
+<p>It is not possible to unbind atomic record elements.</p>
+
+<p>Like plain records, atomic records can be converted to component
+objects using <tt>Objectify</tt>.</p>
+
+<h3 id="s5.4.1">5.4.1 AtomicRecord([capacity|record])</h3>
+
+<p><tt>AtomicRecord</tt> is used to create a new atomic record. Its
+single optional argument is either a positive integer, denoting the
+intended capacity (i.e., number of elements to be held) of the record,
+in which case a new empty atomic record with that initial capacity will
+be created. Alternatively, the caller can provide a plain record with
+which to initially populate the atomic record.</p>
+
+<pre>
+gap&gt; r := AtomicRecord(rec( x := 2 ));
+&lt;atomic record 1/2 full&gt;
+gap&gt; r.y := 3;
+3
+gap&gt; TaskResult(RunTask(function() return r.x + r.y; end));
+5
+gap&gt; [ r.x, r.y ];
+[ 2, 3 ]
+</pre>
+
+<p>Any atomic record can later grow beyond its initial capacity. There
+is no limit to the number of elements it can hold other than available
+memory.</p>
+
+<h3 id="s5.4.2">5.4.2 FromAtomicRecord(record)</h3>
+
+<p><tt>FromAtomicRecord</tt> returns a plain record copy of the atomic
+record <tt>record</tt>. This copy is shallow; elements of
+<tt>record</tt> will not also be copied.</p>
+
+<pre>
+gap&gt; r := AtomicRecord();;
+gap&gt; r.x := 1;; r.y := 2;; r.z := 3;;
+gap&gt; FromAtomicRecord(r);
+rec( x := 1, y := 2, z := 3 )
+</pre>
+
+<h3 id="s5.5">5.5 Replacement policy functions</h3>
+
+<p>There are three functions that set the replacement policy of an
+atomic object. All three can also be used with plain lists and records,
+in which case an atomic version of the list or record is first created.
+This allows programmers to elide <tt>AtomicList</tt> and
+<tt>AtomicRecord</tt> calls when the next step is to change their
+policy.</p>
+
+<h3 id="s5.5.1">5.5.1 MakeWriteOnceAtomic(obj)</h3>
+
+<p><tt>MakeWriteOnceAtomic</tt> takes a list, record, atomic list,
+atomic record, atomic positional object, or atomic component object as
+its argument. If the argument is a non-atomic list or record, then the
+function first creates an atomic copy of the argument. The function then
+changes the replacement policy of the object to write-once: if an
+element of the object is already bound, then further attempts to assign
+to it will be ignored.</p>
+
+<h3 id="s5.5.2">5.5.2 MakeStrictWriteOnceAtomic(obj)</h3>
+
+<p><tt>MakeStrictWriteOnceAtomic</tt> works like
+<tt>MakeWriteOnceAtomic</tt>, except that the replacement policy is
+being changed to being strict write-once: if an element is already
+bound, then further attempts to assign to it will raise an error.</p>
+
+<h3 id="s5.5.3">5.5.3 MakeReadWriteAtomic(obj)</h3>
+
+<p><tt>MakeReadWriteAtomic</tt> is the inverse of
+<tt>MakeWriteOnceAtomic</tt> and <tt>MakeStrictWriteOnceAtomic</tt> in
+that the replacement policy is being changed to being rewritable:
+Elements can be replaced even if they are already bound.</p>
+
+<h3 id="s5.6">5.6 Thread-local records</h3>
+
+<p>Thread-local records allow an easy way to have a separate copy of a
+record for each indvidual thread that is accessed by the same name in
+each thread.</p>
+
+<pre>
+gap&gt; r := ThreadLocalRecord();; # create new thread-local record
+gap&gt; r.x := 99;;
+gap&gt; WaitThread( CreateThread( function()
+&gt;                              r.x := 100; 
+&gt;                              Display(r.x);
+&gt;                              end ) );
+100
+gap&gt; r.x;
+99
+</pre>
+
+<p>As can be seen above, even though <tt>r.x</tt> is overwritten in the
+second thread, it does not affect the value of <tt>r.x| in the first
+thread</tt></p>
+
+<h3 id="s5.6.1">5.6.1 ThreadLocalRecord([defaults [,
+constructors]])</h3>
+
+<p><tt>ThreadLocalRecord</tt> creates a new thread-local record. It
+accepts up to two initial arguments. The <tt>defaults</tt> argument is a
+record of default values with which each thread-local copy is initially
+populated (this happens on demand, so values are not actually read until
+needed).</p>
+
+<p>The second argument is a record of constructors; parameterless
+functions that return an initial value for the respective element.
+Constructors are evaluated only once per thread and only if the
+respective element is accessed without having previously been assigned a
+value.</p>
+
+<pre>
+gap&gt; r := ThreadLocalRecord( rec(x := 99),
+&gt;      rec(y := function() return 101; end));;
+gap&gt; r.x;
+99
+gap&gt; r.y;
+101
+gap&gt; TaskResult(RunTask(function() return r.x; end));
+99
+gap&gt; TaskResult(RunTask(function() return r.y; end));
+101
+</pre>
+
+<h3 id="s5.6.2">5.6.2 SetTLDefault(record, name, value)</h3>
+
+<p><tt>SetTLDefault</tt> can be used to set the default value of a
+record field after its creation. Here, <tt>record</tt> is an atomic
+record, <tt>name</tt> is the string of the field name, and
+<tt>value</tt> is the value.</p>
+
+<pre>
+gap&gt; r := ThreadLocalRecord();;
+gap&gt; SetTLDefault(r, &quot;x&quot;, 314);
+gap&gt; r.x;
+314
+gap&gt; TaskResult(RunTask(function() return r.x; end));
+314
+</pre>
+
+<h3 id="s5.6.3">5.6.3 SetTLConstructor(record, name, func)</h3>
+
+<p><tt>SetTLConstructor</tt> can be used to set the constructor of a
+thread-local record field after its creation, similar to
+<tt>SetTLDefault</tt>.</p>
+
+<pre>
+gap&gt; r := ThreadLocalRecord();;
+gap&gt; SetTLConstructor(r, &quot;x&quot;, function() return 2718; end);
+gap&gt; r.x;
+2718
+gap&gt; TaskResult(RunTask(function() return r.x; end));
+2718
+</pre>
+
+<hr>
+<h2 id="s6.">6. Thread functions</h2>
+
+<p>HPC-GAP has low-level functionality to support explicit creation of
+threads. In practice, programmers should use higher-level functionality,
+such as tasks, to describe concurrency. The thread functions described
+here exist to facilitate the construction of higher level libraries and
+are not meant to be used directly.</p>
+
+<h3 id="s6.1">6.1 CreateThread(func [, arg1, ..., argn])</h3>
+
+<p>New threads are created with the function <tt>CreateThread</tt>. The
+thread takes at least one function as its argument that it will call in
+the newly created thread; it also accepts zero or more parameters that
+will be passed to that function.</p>
+
+<p>The function returns a thread object describing the thread.</p>
+
+<p>Only a finite number of threads can be active at a time (that limit
+is system-dependent). To reclaim the resources occupied by one thread,
+use the <tt><a href="#s6.2">WaitThread</a></tt> function.</p>
+
+<h3 id="s6.2">6.2 WaitThread(threadID)</h3>
+
+<p>The <tt>WaitThread</tt> function waits for the thread identified by
+<tt>threadID</tt> to finish; it does not return any value. When it
+returns, it returns all resources occupied by the thread it waited for,
+such as thread-local memory and operating system structures, to the
+system.</p>
+
+<h3 id="s6.3">6.3 CurrentThread()</h3>
+
+<p>The <tt>CurrentThread</tt> function returns the thread object for the
+current thread.</p>
+
+<h3 id="s6.4">6.4 ThreadID(thread)</h3>
+
+<p>The <tt>ThreadID</tt> function returns a numeric thread id for the
+given thread. The thread id of the main thread is always 0.</p>
+
+<pre>
+gap&gt; CurrentThread();
+&lt;thread #0: running&gt;
+gap&gt; ThreadID(CurrentThread());
+0
+</pre>
+
+<h3 id="s6.5">6.5 KillThread(thread)</h3>
+
+<p>The <tt>KillThread</tt> function terminates the given thread. Any
+region locks that the thread currently holds will be unlocked. The
+thread can be specified as a thread object or via its numeric id.</p>
+
+<p>The implementation for <tt>KillThread</tt> is dependent on the
+interpreter actually executing statements. Threads performing system
+calls, for example, will not be terminated until the system call
+returns. Similarly, long-running kernel functions will delay termination
+until the kernel function returns.</p>
+
+<p>Use of <tt>CALL_WITH_CATCH</tt> will not prevent a thread from being
+terminated. If you wish to make sure that catch handlers will be
+visited, use <tt><a href="#s6.8">InterruptThread</a></tt> instead.
+<tt>KillThread</tt> should be used for threads that cannot be controlled
+anymore in any other way but still eat system resources.</p>
+
+<h3 id="s6.6">6.6 PauseThread(thread)</h3>
+
+<p>The <tt>PauseThread</tt> function suspends execution for the given
+thread. The thread can be specified as a thread object or via its
+numeric id.</p>
+
+<p>The implementation for <tt>PauseThread()</tt> is dependent on the
+interpreter actually executing statements. Threads performing system
+calls, for example, will not pause until the system call returns.
+Similarly, long-running kernel functions will not pause until the kernel
+function returns.</p>
+
+<p>While a thread is paused, the thread that initiated the pause can
+access the paused thread&#39;s thread-local region.</p>
+
+<pre>
+gap&gt; loop := function() while true do Sleep(1); od; end;;
+gap&gt; x := fail;;
+gap&gt; th := CreateThread(function() x := [1, 2, 3]; loop(); end);;
+gap&gt; PauseThread(th);
+gap&gt; x;
+[ 1, 2, 3 ]
+</pre>
+
+<h3 id="s6.7">6.7 ResumeThread(thread)</h3>
+
+<p>The <tt>ResumeThread</tt> function resumes execution for the given
+thread that was paused with <tt>PauseThread</tt>. The thread can be
+specified as a thread object or via its numeric id.</p>
+
+<p>If the thread isn&#39;t paused, <tt>ResumeThread</tt> is a no-op.</p>
+
+<h3 id="s6.8">6.8 InterruptThread(thread, interrupt)</h3>
+
+<p>The <tt>InterruptThread</tt> function calls an interrupt handler for
+the given thread. The thread can be specified as a thread object or via
+its numeric id. The interrupt is specified as an integer between 0 and
+<tt><a href="#s6.11">MAX_INTERRUPT</a></tt>.</p>
+
+<p>An interrupt number of zero (or an interrupt number for which no
+interrupt handler has been set up with <tt><a
+href="#s6.9">SetInterruptHandler</a></tt> will cause the thread to enter
+a break loop. Otherwise, the respective interrupt handler that has been
+created with <tt><a href="#s6.9">SetInterruptHandler</a></tt> will be
+called.</p>
+
+<p>The implementation for <tt>InterruptThread</tt> is dependent on the
+interpreter actually executing statements. Threads performing system
+calls, for example, will not call interrupt handlers until the system
+call returns. Similarly, long-running kernel functions will delay
+invocation of the interrupt handler until the kernel function
+returns.</p>
+
+<h3 id="s6.9">6.9 SetInterruptHandler(interrupt, handler)</h3>
+
+<p>The <tt>SetInterruptHandler</tt> function allows the programmer to
+set up interrupt handlers for the current thread. The interrupt number
+must be in the range from 1 to <tt><a
+href="#s6.11">MAX_INTERRUPT</a></tt> (inclusive); the handler must be a
+parameterless function (or <tt>fail</tt> to remove a handler).</p>
+
+<h3 id="s6.10">6.10 NewInterruptID()</h3>
+
+<p>The <tt>NewInterruptID</tt> function returns a previously unused
+number (starting at 1). These numbers can be used to globally coordinate
+interrupt numbers.</p>
+
+<pre>
+gap&gt; StopTaskInterrupt := NewInterruptID();
+1
+gap&gt; SetInterruptHandler(StopTaskInterrupt, StopTaskHandler);
+</pre>
+
+<h3 id="s6.11">6.11 MAX_INTERRUPT</h3>
+
+<p>The global variable <tt>MAX_INTERRUPT</tt> is an integer containing
+the maximum value for the interrupt arguments to <tt><a
+href="#s6.8">InterruptThread</a></tt> and <tt><a
+href="#s6.9">SetInterruptHandler</a></tt>.</p>
+
+<hr>
+<h2 id="s7.">7. Channels</h2>
+
+<p>Channels are FIFO queues that threads can use to coordinate their
+activities.</p>
+
+<h3 id="s7.1">7.1 CreateChannel([capacity])</h3>
+
+<p>CreateChannel() returns a FIFO communication channel that can be used
+to exchange information between threads. Its optional argument is a
+capacity (positive integer). If insufficient resources are available to
+create a channel, it returns -1. If the capacity is not a positive
+integer, an error will be raised.</p>
+
+<p>If a capacity is not provided, by default the channel can hold an
+indefinite number of objects. Otherwise, attempts to store objects in
+the channel beyond its capacity will block.</p>
+
+<pre>
+gap&gt; ch1:=CreateChannel();
+&lt;channel 0x460339c: 0 elements, 0 waiting&gt;
+gap&gt; ch2:=CreateChannel(5); 
+&lt;channel 0x460324c: 0/5 elements, 0 waiting&gt;
+</pre>
+
+<h3 id="s7.2">7.2 SendChannel(channel, obj)</h3>
+
+<p><tt>SendChannel</tt> accepts two arguments, a channel object returned
+by <tt>CreateChannel</tt>, and an arbitrary GAP object. It stores
+<tt>obj</tt> in <tt>channel</tt>. If <tt>channel</tt> has a finite
+capacity and is currently full, then <tt>SendChannel</tt> will block
+until at least one element has been removed from the channel, e.g. using
+<tt><a href="#s7.6">ReceiveChannel</a></tt>.</p>
+
+<p><tt>SendChannel</tt> performs automatic region migration for
+thread-local objects. If <tt>obj</tt> is thread-local for the current
+thread, it will be migrated (along with all subobjects contained in the
+same region) to the receiving thread&#39;s thread-local data space. In
+between sending and receiving, <tt>obj</tt> cannot be accessed by either
+thread.</p>
+
+<p>This example demonstrates sending messages across a channel.</p>
+
+<pre>
+gap&gt; ch1 := CreateChannel();;
+gap&gt; SendChannel(ch1,1);
+gap&gt; ch1;
+&lt;channel 0x460339c: 1 elements, 0 waiting&gt;
+gap&gt; ReceiveChannel(ch1); 
+1
+gap&gt; ch1;                   
+&lt;channel 0x460339c: 0 elements, 0 waiting&gt;
+</pre>
+
+<p><tt>Sleep</tt> in the following example is used to demonstrate
+blocking.</p>
+
+<pre>
+gap&gt; ch2 := CreateChannel(5);;
+gap&gt; ch3 := CreateChannel();;
+gap&gt; for i in [1..5] do SendChannel(ch2,i); od;
+gap&gt; ch2;
+&lt;channel 0x460324c: 5/5 elements, 0 waiting&gt;
+gap&gt; t:=CreateThread(          
+&gt; function()
+&gt; local x;
+&gt; Sleep(10);
+&gt; x:=ReceiveChannel(ch2);
+&gt; Sleep(10);
+&gt; SendChannel(ch3,x);
+&gt; Print(&quot;Thread finished\n&quot;);
+&gt; end);;
+&gt; SendChannel(ch2,3); # this blocks until the thread reads from ch2
+gap&gt; ReceiveChannel(ch3); # the thread is blocked until we read from ch3
+1
+Thread finished
+gap&gt; WaitThread(t);
+</pre>
+
+<h3 id="s7.3">7.3 TransmitChannel(channel, obj)</h3>
+
+<p><tt>TransmitChannel</tt> is identical to <tt>SendChannel</tt>, except
+that it does not perform automatic region migration of thread-local
+objects.</p>
+
+<pre>
+gap&gt; ch := CreateChannel(5);;
+gap&gt; l := [ 1, 2, 3];;
+gap&gt; original_region := RegionOf(l);;
+gap&gt; SendChannel(ch, l);
+gap&gt; WaitThread(CreateThread(function()
+&gt;      local ob; ob := ReceiveChannel(ch);
+&gt;      Display(RegionOf(ob) = original_region);
+&gt;    end));
+false
+gap&gt; l := [ 1, 2, 3];;
+gap&gt; original_region := RegionOf(l);;
+gap&gt; TransmitChannel(ch, l);
+gap&gt; WaitThread(CreateThread(function()
+&gt;      local ob; ob := ReceiveChannel(ch);
+&gt;      Display(RegionOf(ob) = original_region);
+&gt;    end));
+true
+</pre>
+
+<h3 id="s7.4">7.4 TrySendChannel(channel, obj)</h3>
+
+<p><tt>TrySendChannel</tt> is identical to <tt>SendChannel</tt>, except
+that it returns if the channel is full instead of blocking. It returns
+true if the send was successful and false otherwise.</p>
+
+<pre>
+gap&gt; ch := CreateChannel(1);;
+gap&gt; TrySendChannel(ch, 99);
+true
+gap&gt; TrySendChannel(ch, 99);
+false
+</pre>
+
+<h3 id="s7.5">7.5 TryTransmitChannel(channel, obj)</h3>
+
+<p><tt>TryTransmitChannel</tt> is identical to <tt>TrySendChannel</tt>,
+except that it does not perform automatic region migration of
+thread-local objects.</p>
+
+<h3 id="s7.6">7.6 ReceiveChannel(channel)</h3>
+
+<p><tt>ReceiveChannel</tt> is used to retrieve elements from a channel.
+If <tt>channel</tt> is empty, the call will block until an element has
+been added to the channel via <tt>SendChannel</tt> or a similar
+primitive.</p>
+
+<p>See <tt><a href="#s7.2">SendChannel</a></tt> for an example.</p>
+
+<h3 id="s7.7">7.7 TryReceiveChannel(channel, default)</h3>
+
+<p><tt>TryReceiveChannel</tt>, like <tt>ReceiveChannel</tt>, attempts to
+retrieve an object from <tt>channel</tt>. If it does not succeed,
+however, it will return <tt>default</tt> rather than blocking.</p>
+
+<pre>
+gap&gt; ch := CreateChannel();;
+gap&gt; SendChannel(ch, 99);
+gap&gt; TryReceiveChannel(ch, fail);
+99
+gap&gt; TryReceiveChannel(ch, fail);
+fail
+</pre>
+
+<h3 id="s7.8">7.8 MultiSendChannel(channel, list)</h3>
+
+<p><tt>MultiSendChannel</tt> allows the sending of all the objects
+contained in the list <tt>list</tt> to <tt>channel</tt> as a single
+operation. The list must be dense and is not modified by the call. The
+function will send elements starting at index 1 until all elements have
+been sent. If a channel with finite capacity is full, then the operation
+will block until all elements can be sent.</p>
+
+<p>The operation is designed to be more efficient than sending all
+elements individually via <tt>SendChannel</tt> by minimizing potentially
+expensive concurrency operations.</p>
+
+<p>See <tt><a href="#s7.10">MultiReceiveChannel</a></tt> for an
+example.</p>
+
+<h3 id="s7.9">7.9 TryMultiSendChannel(channel, list)</h3>
+
+<p><tt>TryMultiSendChannel</tt> operates like <tt>MultiSendChannel</tt>,
+except that it returns rather than blocking if it cannot send any more
+elements if the channel is full. It returns the number of elements it
+has sent. If <tt>channel</tt> does not have finite capacity,
+<tt>TryMultiSendChannel</tt> will always send all elements in the
+list.</p>
+
+<h3 id="s7.10">7.10 MultiReceiveChannel(channel, amount)</h3>
+
+<p><tt>MultiReceiveChannel</tt> is the receiving counterpart to
+<tt>MultiSendChannel</tt>. It will try to receive up to <tt>amount</tt>
+objects from <tt>channel</tt>. If the channel contains less than
+<tt>amount</tt> objects, it will return rather than blocking.</p>
+
+<p>The function returns a list of all the objects received.</p>
+
+<pre>
+gap&gt; ch:=CreateChannel();;
+gap&gt; MultiSendChannel(ch, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+gap&gt; MultiReceiveChannel(ch,7);
+[ 1, 2, 3, 4, 5, 6, 7 ]
+gap&gt; MultiReceiveChannel(ch,7);
+[ 8, 9, 10 ]
+gap&gt; MultiReceiveChannel(ch,7);
+[  ]
+</pre>
+
+<h3 id="s7.11">7.11 ReceiveAnyChannel(channel_1, ..., channel_n |
+channel_list)</h3>
+
+<p><tt>ReceiveAnyChannel</tt> is a multiplexing variant of
+<tt>ReceiveChannel</tt>. It blocks until at least one of the channels
+provided contains an object. It will then retrieve that object from the
+channel and return it.</p>
+
+<pre>
+gap&gt; ch1 := CreateChannel();;
+gap&gt; ch2 := CreateChannel();;
+gap&gt; SendChannel(ch2, [1, 2, 3]);;
+gap&gt; ReceiveAnyChannel(ch1, ch2);
+[ 1, 2, 3 ]
+</pre>
+
+<h3 id="s7.12">7.12 ReceiveAnyChannelWithIndex(channel_1, ..., channel_n
+| channel_list)</h3>
+
+<p><tt>ReceiveAnyChannelWithIndex</tt> works like
+<tt>ReceiveAnyChannel</tt>, except that it returns a list with two
+elements, the first being the object being received, the second being
+the number of the channel from which the object has been retrieved.</p>
+
+<pre>
+gap&gt; ch1 := CreateChannel();;
+gap&gt; ch2 := CreateChannel();;
+gap&gt; SendChannel(ch2, [1, 2, 3]);;
+gap&gt; ReceiveAnyChannelWithIndex(ch1, ch2);
+[ [ 1, 2, 3 ], 2 ]
+</pre>
+
+<h3 id="s7.13">7.13 TallyChannel(channel)</h3>
+
+<p><tt>TallyChannel</tt> returns the number of objects that a channel
+contains. This number can increase or decrease, as data is sent to or
+received from this channel. Send operations will only ever increase and
+receive operations will only ever decrease this count. Thus, if there is
+only one thread receiving data from the channel, it can use the result
+as a lower bound for the number of elements that will be available in
+the channel.</p>
+
+<pre>
+gap&gt; ch := CreateChannel();;
+gap&gt; SendChannel(ch, 2);
+gap&gt; SendChannel(ch, 3);
+gap&gt; SendChannel(ch, 5);
+gap&gt; TallyChannel(ch);
+3
+</pre>
+
+<h3 id="s7.14">7.14 InspectChannel(channel)</h3>
+
+<p><tt>InspectChannel</tt> returns a list of the objects that a channel
+contains. Note that objects that are not in the shared, public, or
+read-only region will be temporarily stored in the so-called limbo
+region while in transit and will be inaccessible through normal means
+until they have been received.</p>
+
+<pre>
+gap&gt; ch := CreateChannel();;
+gap&gt; SendChannel(ch, 2);
+gap&gt; SendChannel(ch, 3);
+gap&gt; SendChannel(ch, 5);
+gap&gt; InspectChannel(ch);
+[ 2, 3, 5 ]
+</pre>
+
+<p>This function is primarly intended for debugging purposes.</p>
+
+<hr>
+<h2 id="s8.">8. Semaphores</h2>
+
+<p>Semaphores are synchronized counters; they can also be used to
+simulate locks.</p>
+
+<h3 id="s8.1">8.1 CreateSemaphore([value])</h3>
+
+<p>The function <tt>CreateSemaphore</tt> takes an optional argument,
+which defaults to zero. It is the counter with which the semaphore is
+initialized.</p>
+
+<pre>
+gap&gt; sem := CreateSemaphore(1);
+&lt;semaphore 0x1108e81c0: count = 1&gt;
+</pre>
+
+<h3 id="s8.2">8.2 WaitSemaphore(sem);</h3>
+
+<p><tt>WaitSemaphore</tt> receives a previously created semaphore as its
+argument. If the semaphore&#39;s counter is greater than zero, it
+decrements the counter and returns; if the counter is zero, it waits
+until another thread increases it via <tt>SignalSemaphore</tt>, then
+decrements the counter and returns.</p>
+
+<pre>
+gap&gt; sem := CreateSemaphore(1);
+&lt;semaphore 0x1108e81c0: count = 1&gt;
+gap&gt; WaitSemaphore(sem);
+gap&gt; sem;
+&lt;semaphore 0x1108e81c0: count = 0&gt;
+</pre>
+
+<h3 id="s8.3">8.3 SignalSemaphore(sem)</h3>
+
+<p><tt>SignalSemaphore</tt> receives a previously created semaphore as
+its argument. It increments the semaphore&#39;s counter and returns.</p>
+
+<pre>
+gap&gt; sem := CreateSemaphore(1);
+&lt;semaphore 0x1108e81c0: count = 1&gt;
+gap&gt; WaitSemaphore(sem);
+gap&gt; sem;
+&lt;semaphore 0x1108e81c0: count = 0&gt;
+gap&gt; SignalSemaphore(sem);
+gap&gt; sem;
+&lt;semaphore 0x1108e81c0: count = 1&gt;
+</pre>
+
+<h3 id="s8.4">8.4 Simulating locks</h3>
+
+<p>In order to use semaphores to simulate locks, create a semaphore with
+an initial value of 1. <tt>WaitSemaphore</tt> is then equivalent to a
+lock operation, <tt>SignalSemaphore</tt> is equivalent to an unlock
+operation.</p>
+
+<hr>
+<h2 id="s9.">9. Synchronization variables</h2>
+
+<p>Synchronization variables (also often called dataflow variables in
+the literature) are variables that can be written only once; attempts to
+read the variable block until it has been written to.</p>
+
+<p>Synchronization variables are created with <tt><a
+href="#s9.1">CreateSyncVar</a></tt>, written with <tt><a
+href="#s9.2">SyncWrite</a></tt> and read with <tt><a
+href="#s9.3">SyncRead</a></tt>.</p>
+
+<pre>
+gap&gt; sv := CreateSyncVar();;
+gap&gt; RunAsyncTask(function()
+&gt;      Sleep(10);
+&gt;      SyncWrite(sv, MakeImmutable([1, 2, 3]));
+&gt;    end);;
+gap&gt; SyncRead(sv);
+[ 1, 2, 3 ]
+</pre>
+
+<h3 id="s9.1">9.1 CreateSyncVar()</h3>
+
+<p>The function <tt>CreateSyncVar</tt> takes no arguments. It returns a
+new synchronization variable. There is no need to deallocate it; the
+garbage collector will free the memory and all related resources when it
+is no longer accessible.</p>
+
+<h3 id="s9.2">9.2 SyncWrite(syncvar, obj)</h3>
+
+<p><tt>SyncWrite</tt> attempts to assign the value <tt>obj</tt> to
+<tt>syncvar</tt>. If <tt>syncvar</tt> has been previously assigned a
+value, the call will fail with a runtime error; otherwise, <tt>obj</tt>
+will be assigned to <tt>syncvar</tt>.</p>
+
+<p>In order to make sure that the recipient can read the result, the
+<tt>obj</tt> argument should not be a thread-local object; it should be
+public, read-only, or shared.</p>
+
+<h3 id="s9.3">9.3 SyncRead(syncvar)</h3>
+
+<p><tt>SyncRead</tt> reads the value previously assigned to
+<tt>syncvar</tt> with <tt>SyncWrite</tt>. If no value has been assigned
+yet, it blocks. It returns the assigned value.</p>
+
+<hr>
+<h2 id="s10.">10. Serialization support</h2>
+
+<p>HPC-GAP has support to serialize most GAP data. While functions in
+particular cannot be serialized, it is possible to serialize all
+primitive types (booleans, integers, cyclotomics, permutations, floats,
+etc.) as well as all lists and records.</p>
+
+<p>Custom serialization support can be written for data objects,
+positional objects, and component objects; serialization of compressed
+vectors is already supported by the standard library.</p>
+
+<h3 id="s10.1">10.1 SerializeToNativeString(obj)</h3>
+
+<p><tt>SerializeToNativeString</tt> takes the object passed as an
+argument and turns it into a string, from which a copy of the original
+can be extracted using <tt>DeserializeNativeString</tt>.</p>
+
+<h3 id="s10.2">10.2 DeserializeNativeString(str)</h3>
+
+<p><tt>DeserializeNativeString</tt> reverts the serialization
+process.</p>
+
+<p>Example:</p>
+
+<pre>
+gap&gt; DeserializeNativeString(SerializeToNativeString([1,2,3]));
+[ 1, 2, 3 ]
+</pre>
+
+<h3 id="s10.3">10.3 InstallTypeSerializationTag(type, tag)</h3>
+
+<p><tt>InstallTypeSerializationTag</tt> allows the serialization of data
+objects, positional objects, and component objects. The value of
+<tt>tag</tt> must be unique for each type; it can be a string or
+integer. Non-negative integers are reserved for use by the standard
+library; users should use negative integers or strings instead.</p>
+
+<p>Objects of such a type are serialized in a straightforward way:
+During serialization, data objects are converted into byte streams,
+positional objects into lists, and component objects into records. These
+objects are then serialized along with their tags; deserialization uses
+the type corresponding to the tag in conjunction with <tt>Objectify</tt>
+to reconstruct a copy of the original object.</p>
+
+<p>Note that this functionality may be inadequate for objects that have
+complex data structures attached that are not meant to be replicated.
+The following alternative is meant for such objects.</p>
+
+<h3 id="s10.4">10.4 InstallSerializer(description, filters, method)</h3>
+
+<p>The more general <tt>InstallSerializer</tt> allows for arbitarily
+complex serialization code. It installs <tt>method</tt> as the method to
+serialize objects matching <tt>filters</tt>; <tt>description</tt> has
+the same role as for <tt>InstallMethod</tt>.</p>
+
+<p>The method must return a plain list matching a specific format. The
+first element must be a non-negative integer, the second must be a
+string descriptor that is unique to the serializer; these can then be
+followed by an arbitrary number of arguments.</p>
+
+<p>As many of the arguments (starting with the third element of the
+list) as specified by the first element of the list will be converted
+from their object representation into a serializable representation.
+Data objects will be converted into untyped data objects, positional
+objects will be converted into plain lists, and component objects into
+records. Conversion will not modify the objects in place, but work on
+copies. The remaining arguments will remain untouched.</p>
+
+<p>Upon deserialization, these arguments will be passed to a function
+specified by the second element of the list.</p>
+
+<p>Example:</p>
+
+<pre>
+InstallSerializer(&quot;8-bit vectors&quot;, [ Is8BitVectorRep ], function(obj)
+  return [1, &quot;Vec8Bit&quot;, obj, Q_VEC8BIT(obj), IS_MUTABLE_OBJ(obj)];
+end);
+</pre>
+
+<p>Here, <tt>obj</tt> will be converted into its underlying
+representation, while the remaining arguments are left alone.
+<tt>&quot;Vec8Bit&quot;</tt> is the name that is used to look up the
+deserializer function.</p>
+
+<h3 id="s10.5">10.5 InstallDeserializer(descriptor, func)</h3>
+
+<p>The <tt>descriptor</tt> value must be the same as the second element
+of the list returned by the serializer; <tt>func</tt> must be a function
+that takes as many arguments as there were arguments after the second
+element of that list. For deserialization, this function is invoked and
+needs to return the deserialized object constructed from the
+arguments.</p>
+
+<p>Example:</p>
+
+<pre>
+InstallDeserializer(&quot;Vec8Bit&quot;, function(obj, q, mut)
+  SET_TYPE_OBJ(obj, TYPE_VEC8BIT(q, mut));
+  return obj;
+end);
+</pre>
+
+<p>Here, the untyped <tt>obj</tt> that was passed to the deserializer
+needs to be given the correct type, which is calculated from <tt>q</tt>
+and <tt>mut</tt>.</p>
+
+<hr>
+<h2 id="s11.">11. ZeroMQ Bindings</h2>
+
+<p>There are experimental bindings to the ZeroMQ library available
+(http://www.zeromq.net/). This section describes these bindings. You
+need to build HPC-GAP with &quot;make ZMQ=yes&quot; to activate them.
+</p>
+
+<p>Messages in ZeroMQ are sent between endpoints called
+<em>sockets</em>. Each socket can be <em>bound</em> to an address
+specified by a URI and other sockets can <em>connect</em> to the same
+address to exchange messages with that socket.</p>
+
+<h3 id="s11.1">11.1 Addresses, transports, and URIs</h3>
+
+<p>Addresses are specified as URIs of one of four different types (TCP,
+IPC, in-process, PGM/EPGM), each for a different type of transport.</p>
+
+<h3 id="s11.1.1">11.1.1 The TCP transport</h3>
+
+<p>TCP URIs map to POSIX TCP stream sockets. The URI is of the form
+&quot;tcp://&lt;address&gt;:&lt;port&gt;&quot; or
+&quot;tcp://*:&lt;port&gt;&quot;. Here, <tt>&lt;address&gt;</tt> is an
+internet address, either an IP address or a symbolic address (note that
+to resolve symbolic addresses, the library may have to consult DNS
+servers, which can take an indefinite amount of time or even fail). Port
+is a TCP port number. If a &quot;*&quot; is given instead of an address,
+this describes the so-called unspecified address; the URI can only be
+used for binding and will then accept incoming connections from all
+interfaces (as in binding to &quot;0.0.0.0&quot; in IPv4 or
+&quot;::&quot; in IPv6).</p>
+
+<h3 id="s11.1.2">11.1.2 The IPC transport</h3>
+
+<p>The URI for IPC communication is of the form
+&quot;ipc://&lt;path&gt;&quot;, where <tt>&lt;path&gt;</tt> is an actual
+path on the file system. Binding to such a URI will create a file in
+that location.</p>
+
+<pre>
+gap&gt; socket := ZmqDealerSocket();;
+gap&gt; ZmqBind(socket, &quot;ipc:///tmp/connector&quot;);
+</pre>
+
+<h3 id="s11.1.3">11.1.3 The in-process transport</h3>
+
+<p>The in-process transport is used to communicate between threads in
+order to avoid the overhead of operating system calls. Messages are
+simply being copied from one thread&#39;s memory to the other&#39;s.</p>
+
+<p>In-process URIs are of the form &quot;inproc://&lt;string&gt;&quot;,
+where <tt>&lt;string&gt;</tt> is an arbitrary string.</p>
+
+<h3 id="s11.2">11.2 Creating and closing sockets</h3>
+
+<p>Sockets are generally being created via calls to <tt><a
+href="#s11.2.1">ZmqPushSocket</a></tt>, etc. Each such call takes two
+optional arguments, a URI and an identity.</p>
+
+<p>If a URI is given, a call to <tt><a
+href="#s11.3.3">ZmqAttach</a></tt> will be performed immediately with
+the socket and URI. In particular, if the URI is prefixed with a
+&quot;+&quot; character, then the socket will connect to the address
+specified by the part after the &quot;+ character; otherwise, it will be
+bound to the URI.</p>
+
+<pre>
+gap&gt; z := ZmqPushSocket(&quot;inproc://test&quot;);  # binds to inproc://test
+gap&gt; z := ZmqPushSocket(&quot;+inproc://test&quot;); # connects to inproc://test
+</pre>
+
+<p>If an identity is also provided, the library will call <tt><a
+href="#s11.5.1">ZmqSetIdentity</a></tt> to set the identity (name) for
+that socket.</p>
+
+<p>For a precise description of the behavior of each socket type, please
+consult the original ZeroMQ documentation for <tt>zmq_socket()</tt>.</p>
+
+<h3 id="s11.2.1">11.2.1 ZmqPushSocket([uri, [identity]])</h3>
+
+<p>A push socket is one end of a unidirectional pipe. Programs can send
+messages to it, which will be delivered to a matched pull socket at the
+other end.</p>
+
+<h3 id="s11.2.2">11.2.2 ZmqPullSocket([uri, [identity]])</h3>
+
+<p>A pull socket is the other end of a unidirectional pipe.</p>
+
+<h3 id="s11.2.3">11.2.3 ZmqReplySocket([uri, [identity]])</h3>
+
+<p>A reply socket provides the server side of a remote-procedure call
+interaction. It alternates between receiving a message and sending a
+message to the socket from which the previous one originated.</p>
+
+<p>Deviating from that protocol (for example, by sending two messages in
+succession or receiving two without responding to the first) will result
+in an error.</p>
+
+<h3 id="s11.2.4">11.2.4 ZmqRequestSocket([uri, [identity]])</h3>
+
+<p>A request socket provides the client side of a remote-procedure call
+interaction. It will alternate between sending a message to a connected
+reply socket and receiving the response.</p>
+
+<h3 id="s11.2.5">11.2.5 ZmqPublisherSocket([uri, [identity]])</h3>
+
+<p>A publisher socket is a unidirectional broadcast facility. It will
+send each outgoing message to all connected subscriber sockets.</p>
+
+<h3 id="s11.2.6">11.2.6 ZmqSubscriberSocket([uri, [identity]])</h3>
+
+<p>A subscriber socket receives messages from a publisher socket. It can
+subscribe to only a specific subseet of messages (see the <tt><a
+href="#s11.5.11">ZmqSubscribe</a></tt> function) or receive all of
+them.</p>
+
+<h3 id="s11.2.7">11.2.7 ZmqDealerSocket([uri, [identity]])</h3>
+
+<p>A dealer socket is a bidirectional socket. One or more peers can
+connect to it. Outgoing messages will be sent to those peers in a
+round-robin fashion (i.e., the first message goes to the first peer, the
+second to the second peer, and so forth until all peers have received a
+message and the process begins anew with the first peer). Incoming
+messages will be received from all peers and processed fairly (i.e., no
+message will be held indefinitely).</p>
+
+<p>Two dealer sockets can be used to create a bidirectional pipe.</p>
+
+<h3 id="s11.2.8">11.2.8 ZmqRouterSocket([uri, [identity]])</h3>
+
+<p>Router sockets, like dealer sockets, can have multiple peers
+connected to them. Incoming messages are handled the same way as for
+dealer sockets. Outgoing messages should be multi-part messages, where
+the first part of the message is the identity of one of the peers. The
+message will then be sent only to the peer with that identity.</p>
+
+<p>Peers can be dealer, request, or reply sockets.</p>
+
+<h3 id="s11.2.9">11.2.9 ZmqSocket(type)</h3>
+
+<p><tt>ZmqSocket</tt> is a low-level function that is used by
+<tt>ZmqPushSocket</tt> etc. to create sockets. Its argument is a string,
+one of &quot;PUSH&quot;, &quot;PULL&quot;, &quot;REP&quot;,
+&quot;REQ&quot;, &quot;PUB&quot;, &quot;SUB&quot;, DEALER&quot;,
+&quot;ROUTER&quot;, and it creates and returns a socket of that
+type.</p>
+
+<h3 id="s11.2.10">11.2.10 ZmqClose(socket)</h3>
+
+<p><tt>ZmqClose</tt> closes <tt>socket</tt>. Afterwards, it cannot
+anymore be bound or connected to, nor receive or send messages. Messages
+already in transit will still be delivered.</p>
+
+<h3 id="s11.2.11">11.2.11 ZmqIsOpen(socket)</h3>
+
+<p><tt>ZmqIsOpen</tt> returns true if <tt>socket</tt> has not been
+closed yet, false otherwise.</p>
+
+<h3 id="s11.2.12">11.2.12 ZmqSocketType(socket)</h3>
+
+<p><tt>ZmqSocketType</tt> returns the string with which the socket was
+created (see <tt><a href="#s11.2.9">ZmqSocket</a></tt>).</p>
+
+<h3 id="s11.3">11.3 Binding and connecting sockets to addresses</h3>
+
+<h3 id="s11.3.1">11.3.1 ZmqBind(socket, uri)</h3>
+
+<p><tt>ZmqBind</tt> will <em>bind</em> <tt>socket</tt> to <tt>uri</tt>.
+After being bound to the address specified by <tt>uri</tt>, the socket
+can be connected to at that address with <tt><a
+href="#s11.3.2">ZmqConnect</a></tt>.</p>
+
+<h3 id="s11.3.2">11.3.2 ZmqConnect(socket, uri)</h3>
+
+<p><tt>ZmqConnect</tt> is used to connect <tt>socket</tt> to another
+socket that has been bound to <tt>uri</tt>. Note that you can connect to
+an address that has not been bound yet; in that case, the connection
+will be delayed until the binding has occurred.</p>
+
+<h3 id="s11.3.3">11.3.3 ZmqAttach(socket, uri)</h3>
+
+<p><tt>ZmqAttach</tt> is a unified interface for binding and connecting
+a socket. If <tt>uri</tt> begins with a &quot;+&quot; character, then
+the <tt><a href="#s11.3.2">ZmqConnect</a></tt> is called with the socket
+and the rest of the <tt>uri</tt> string following the &quot;+&quot;.
+Otherwise, <tt><a href="#s11.3.1">ZmqBind</a></tt> is called with these
+arguments.</p>
+
+<p>The intended use is to construct a network of connections from a list
+of strings.</p>
+
+<h3 id="s11.3.4">11.3.4 ZmqSocketURI(socket)</h3>
+
+<p><tt>ZmqSocketURI</tt> returns the most recent URI to which
+<tt>socket</tt> has been bound or connected. Sockets can be bound to or
+connected to multiple addresses, but only the most recent one is
+returned.</p>
+
+<h3 id="s11.3.5">11.3.5 ZmqIsBound(socket)</h3>
+
+<p><tt>ZmqIsBound</tt> returns true if the socket has been bound to the
+address returned by <tt>ZmqSocketURI()</tt>, false otherwise.</p>
+
+<h3 id="s11.3.6">11.3.6 ZmqIsConnected(socket)</h3>
+
+<p><tt>ZmqIsBound</tt> returns true if the socket has been connected to
+the address returned by <tt>ZmqSocketURI()</tt>, false otherwise.</p>
+
+<h3 id="s11.4">11.4 Sending and receiving messages</h3>
+
+<p>ZeroMQ allows the sending and receiving of both string messages and
+multi-part messages. String messages are sequences of bytes (which can
+include zero), provided as a GAP string, while multi-part messages are
+lists of strings, provided as a GAP list. Multi-part messages are
+largely a convenience feature (e.g., to allow a message to have header
+parts without the inconvenience of having to encode those in a single
+string). When sent, multi-part messages will be delivered in their
+entirety; they can be retrieved one part at a time, but if the first
+part is available, the last part is available also.</p>
+
+<h3 id="s11.4.1">11.4.1 ZmqSend(socket, data)</h3>
+
+<p><tt>ZmqSend</tt> will send <tt>data</tt> to <tt>socket</tt>,
+according to the routing behavior of the underlying socket
+mechanism.</p>
+
+<h3 id="s11.4.2">11.4.2 ZmqReceive(socket)</h3>
+
+<p><tt>ZmqReceive</tt> will either retrieve a string message or a single
+part of a multi-part message from <tt>socket</tt> and return the result
+as a GAP string.</p>
+
+<pre>
+gap&gt; z := ZmqSocket(&quot;inproc://test&quot;);;
+gap&gt; z2 := ZmqSocket(&quot;+inproc://test&quot;);;
+gap&gt; ZmqSend(z, &quot;notice&quot;);
+gap&gt; ZmqReceive(z2);
+&quot;notice&quot;
+gap&gt; ZmqSend(z, [&quot;alpha&quot;, &quot;beta&quot;]);
+gap&gt; ZmqReceive(z2);
+&quot;alpha&quot;
+gap&gt; ZmqReceive(z2);
+&quot;beta&quot;
+</pre>
+
+<h3 id="s11.4.3">11.4.3 ZmqReceiveList(socket)</h3>
+
+<p><tt>ZmqReceiveList</tt> will retrieve a message in its entirety from
+<tt>socket</tt> and return the result as a list of strings.</p>
+
+<pre>
+gap&gt; z := ZmqPushSocket(&quot;inproc://test&quot;);;
+gap&gt; z2 := ZmqPullSocket(&quot;+inproc://test&quot;);;
+gap&gt; ZmqSend(z, &quot;notice&quot;);
+gap&gt; ZmqReceiveList(z2);
+[ &quot;notice&quot; ]
+gap&gt; ZmqSend(z, [&quot;alpha&quot;, &quot;beta&quot;]);
+gap&gt; ZmqReceiveList(z2);
+[ &quot;alpha&quot;, &quot;beta&quot; ]
+</pre>
+
+<h3 id="s11.4.4">11.4.4 ZmqReceiveListAsString(socket, separator)</h3>
+
+<p><tt>ZmqReceiveListAsString</tt> works like <tt>ZmqReceiveList</tt>,
+but will return the result a single string, with multiple parts
+separated by <tt>separator</tt>.</p>
+
+<pre>
+gap&gt; z := ZmqPushSocket(&quot;inproc://test&quot;);;
+gap&gt; z2 := ZmqPullSocket(&quot;+inproc://test&quot;);;
+gap&gt; ZmqSend(z, &quot;notice&quot;);
+gap&gt; ZmqReceiveListAsString(z2, &quot;::&quot;);
+&quot;notice&quot;
+gap&gt; ZmqSend(z, [&quot;alpha&quot;, &quot;beta&quot;]);
+gap&gt; ZmqReceiveListAsString(z2, &quot;::&quot;);
+&quot;alpha::beta&quot;
+</pre>
+
+<h3 id="s11.4.5">11.4.5 ZmqHasMore(socket)</h3>
+
+<p><tt>ZmqHasMore</tt> will return <tt>true</tt> if a socket has one or
+more remaining parts of a multi-part message outstanding, <tt>false</tt>
+otherwise.</p>
+
+<pre>
+gap&gt; z := ZmqPushSocket(&quot;inproc://test&quot;);;
+gap&gt; z2 := ZmqPullSocket(&quot;+inproc://test&quot;);;
+gap&gt; ZmqSend(z, &quot;notice&quot;);
+gap&gt; ZmqReceive(z2);
+&quot;notice&quot;
+gap&gt; ZmqHasMore(z2);
+false
+gap&gt; ZmqSend(z, [&quot;alpha&quot;, &quot;beta&quot;]);
+gap&gt; ZmqReceive(z2);
+&quot;alpha&quot;
+gap&gt; ZmqHasMore(z2);
+true
+gap&gt; ZmqReceive(z2);
+&quot;beta&quot;
+gap&gt; ZmqHasMore(z2);
+false
+</pre>
+
+<h3 id="s11.4.6">11.4.6 ZmqPoll(inputs, outputs, timeout)</h3>
+
+<p><tt>ZmqPoll</tt> is a facility to determine if messages can be
+received from one of the sockets listed in <tt>inputs</tt> or sent to
+one of the sockets listed in <tt>outputs</tt>. It returns a list of
+indices describing the sockets that at least one message can be received
+from or sent to. The timeout is an integer. If positive, it describes a
+duration (in milliseconds) after which it will return. If zero, the
+function will return immediately. If it is <tt>-1</tt>, then the
+function will block indefinitely until at least one message can be
+retrieved from one of the sockets in <tt>inputs</tt> or at least one
+message can be sent to one of the sockets in <tt>outputs</tt>. If the
+timeout is non-negative, the result can be the empty list. It is
+guaranteed to have at least one element otherwise.</p>
+
+<p>The indices in the result are in the range
+<tt>[1..Length(inputs)+Length(outputs)</tt>. An index <tt>i</tt> less
+than or equal to <tt>Length(inputs)</tt> refers to the socket
+<tt>inputs[i]</tt>. An index <tt>j</tt> in the range
+<tt>[Length(inputs)+1..Length(inputs)+Length(outputs)</tt> refers to the
+socket <tt>outputs[j-Length(inputs)]</tt>. Multiple indices are listed
+in ascending order (i.e., they form a GAP set).</p>
+
+<pre>
+gap&gt; send1 := ZmqPushSocket(&quot;inproc://#1&quot;);;
+gap&gt; recv1 := ZmqPullSocket(&quot;+inproc://#1&quot;);;
+gap&gt; send2 := ZmqPushSocket();;
+gap&gt; recv2 := ZmqPullSocket();;
+gap&gt; ZmqSetSendCapacity(send2, 1);
+gap&gt; ZmqSetReceiveCapacity(recv2, 1);
+gap&gt; ZmqBind(send2, &quot;inproc://#2&quot;);
+gap&gt; ZmqConnect(recv2, &quot;inproc://#2&quot;);
+gap&gt; ZmqSend(send2, &quot;alpha&quot;);
+gap&gt; ZmqSend(send2, &quot;beta&quot;); 
+gap&gt; ZmqPoll([recv1, recv2], [send1, send2], 0);
+[ 2, 3 ]
+</pre>
+
+<p>In the example above, the code constructs sockets <tt>send2</tt> and
+<tt>recv2</tt> with a capacity to store at most one outgoing and
+incoming message, respectively. Then the code sends two messages to
+<tt>send2</tt>, one of which will be in the incoming buffer of
+<tt>recv2</tt>, and the other will remain in the outgoing buffer of
+<tt>send2</tt>. At this point, no more messages can be sent to
+<tt>send2</tt>, because its outgoing buffer is at capacity, and
+<tt>recv2</tt> has a message that can be received. Conversely,
+<tt>send1</tt> can still accept outgoing messages, and <tt>recv1</tt>
+has no messages.</p>
+
+<p>Thus, the result is the list <tt>[2, 3]</tt>. The <tt>2</tt> refers
+to <tt>recv2</tt> (as the second socket in the list of inputs), while
+<tt>3</tt> refers to <tt>send1</tt> (as the first socket in the list of
+outputs).</p>
+
+<h3 id="s11.5">11.5 Setting and querying socket properties</h3>
+
+<p>Sockets have properties that can be set and queried. Most such
+properties only affect binds and connects that occur after they have
+been set. Binding or connecting a socket first and then setting a
+property will not change the behavior of the socket.</p>
+
+<h3 id="s11.5.1">11.5.1 ZmqSetIdentity(socket, string)</h3>
+
+<p><tt>ZmqSetIdentity</tt> can be used to give the socket an identity.
+An identity is a string of up to 255 characters that should not start
+with a null character (the null character is reserved for internal
+use).</p>
+
+<p>This identity should be globally unique. Uniqueness is not enforced,
+however, and undefined behavior may result from different sockets with
+the same identity interacting.</p>
+
+<h3 id="s11.5.2">11.5.2 ZmqGetIdentity(socket)</h3>
+
+<p><tt>ZmqGetIdentity</tt> returns the current identity of the
+socket.</p>
+
+<h3 id="s11.5.3">11.5.3 ZmqSetSendCapacity(socket, value)</h3>
+
+<p><tt>ZmqSetSendCapacity</tt> sets the maximum number of messages that
+a socket can store in its outgoing buffer.</p>
+
+<h3 id="s11.5.4">11.5.4 ZmqSetReceiveCapacity(socket, value)</h3>
+
+<p><tt>ZmqSetReceiveCapacity</tt> sets the maximum number of messages
+that a socket can store in its outgoing buffer.</p>
+
+<h3 id="s11.5.5">11.5.5 ZmqGetSendCapacity(socket)</h3>
+
+<p><tt>ZmqGetSendCapacity</tt> returns the maximum number of messages
+that a socket can store in its outgoing buffer.</p>
+
+<h3 id="s11.5.6">11.5.6 ZmqGetReceiveCapacity(socket)</h3>
+
+<p><tt>ZmqGetReceiveCapacity</tt> returns the maximum number of messages
+that a socket can store in its incoming buffer.</p>
+
+<h3 id="s11.5.7">11.5.7 ZmqSetSendBufferSize(socket, size)</h3>
+
+<p><tt>ZmqSetSendBufferSize</tt> sets the size of the transmission
+buffer used by the underlying operating system structure for sending
+data.</p>
+
+<h3 id="s11.5.8">11.5.8 ZmqGetSendBufferSize(socket)</h3>
+
+<p><tt>ZmqGetSendBufferSize</tt> returns the size of the transmission
+buffer used by the underlying operating system structure for sending
+data.</p>
+
+<h3 id="s11.5.9">11.5.9 ZmqSetReceiveBufferSize(socket, size)</h3>
+
+<p><tt>ZmqSetReceiveBufferSize</tt> sets the size of the transmission
+buffer used by the underlying operating system structure for receiving
+data.</p>
+
+<h3 id="s11.5.10">11.5.10 ZmqGetReceiveBufferSize(socket)</h3>
+
+<p><tt>ZmqGetReceiveBufferSize</tt> returns the size of the transmission
+buffer used by the underlying operating system structure for receiving
+data.</p>
+
+<h3 id="s11.5.11">11.5.11 ZmqSubscribe(socket, prefix)</h3>
+
+<p>The <tt>ZmqSubscribe</tt> function can only be used for Subscriber
+sockets. After calling it, only messages that begin with the given
+prefix string will be received by the subscriber. All others will be
+silently discarded. The function can be used multiple times, and then
+all messages that match any of the prefixes will be received.</p>
+
+<h3 id="s11.5.12">11.5.12 ZmqUnsubscribe(socket, prefix)</h3>
+
+<p>The <tt>ZmqUnsubscribe</tt> function removes the given prefix string
+from the socket&#39;s subscription list.</p>
+
+<hr>
+<h2 id="s12.">12. Using ZeroMQ with the zgap script</h2>
+
+<p>The <tt>zgap</tt> script provides facilities to start a number of
+child processes controlled by a single master process and to allow for
+easy coordination between them.</p>
+
+<h3 id="s12.1">12.1 Running zgap</h3>
+
+<p>From the shell, run zgap via:</p>
+
+<pre>
+bin/zgap -N &lt;nodes&gt; &lt;gap_options&gt; &lt;gap_files&gt;
+</pre>
+
+<p>Here, <tt>&lt;nodes&gt;</tt> should be a positive integer that
+describes the number of workers one wishes to start. The rest of the
+command line, consisting of gap options and gap files, will be passed to
+the master and the worker processes verbatim. This allows, for example,
+the initialization of functions that need to be known by all
+workers.</p>
+
+<p>The first line of output will be prefixed with <tt>[zgap]</tt> and
+will list the directory where <tt>zgap</tt> will store the files and
+sockets it uses to communicate. In particular, the <tt>logXX.txt</tt>
+files within that directory will contain the output generated by the
+workers; this is useful for debugging, as the workers do not have a
+working break loop.</p>
+
+<p>Example:</p>
+
+<pre>
+bin/zgap -N 4 -P 8 -m 1G common.g
+</pre>
+
+<p>On NUMA architectures that support the <tt>numactl</tt> command, it
+is possible to further specify which node each worker should be running
+on. This can take one of two forms:</p>
+
+<pre>
+bin/zgap -N &lt;count&gt;:&lt;start&gt;-&lt;end&gt;
+bin/zgap -N &lt;count&gt;:+&lt;start&gt;-&lt;end&gt;
+</pre>
+
+<p>Each will distribute <tt>&lt;count&gt;</tt> worker processes on the
+physical nodes ranging from <tt>&lt;start&gt;</tt> to
+<tt>&lt;end&gt;</tt> in a round-robin fashion, reusing nodes if there
+are more workers than nodes. The first mode (without a <tt>+</tt> sign)
+will use absolute node numbers, the second will be relative to the
+master process. See the <tt>numactl</tt> manual page for further
+details.</p>
+
+<p>Example:</p>
+
+<pre>
+bin/zgap -N 4:+0-3 -P 8 -m 1G common.g
+</pre>
+
+<p>Note: Currently, <tt>zgap</tt> can only be run from the GAP root
+directory. This is an implementation restriction that is to be removed
+at a later date.</p>
+
+<h3 id="s12.2">12.2 Zgap API</h3>
+
+<p>Most of the following API functions take a <tt>dest</tt> argument,
+which is used to specify the destination of the operation. To specify a
+worker thread, <tt>dest</tt> would have to be an integer in the range
+from 1 to the number of worker processes; 0 specifies the master
+process. Multiple processes can be specified by a range or list of
+integers. The variable <tt>ZAll</tt> contains a range encompassing the
+worker processes; <tt>ZSelf</tt> contains the index of the current
+worker or 0 for the master.</p>
+
+<h3 id="s12.2.1">12.2.1 ZExec(dest, cmd)</h3>
+
+<p>This function sends <tt>cmd</tt> to the given destination and
+executes it there. The command must be a valid GAP statement ending in a
+semicolon. If <tt>dest</tt> specifies multiple processes, the command
+will be executed on all of them.</p>
+
+<h3 id="s12.2.2">12.2.2 ZBind(dest, var, expr)</h3>
+
+<p>This function binds the global variable described by the string
+<tt>var</tt> to the value <tt>expr</tt> in all processes listed in
+<tt>dest</tt>. Note that <tt>expr</tt> must evaluate to a serializable
+value.</p>
+
+<pre>
+gap&gt; ZBind(ZAll, &quot;counter&quot;, 0);
+</pre>
+
+<h3 id="s12.2.3">12.2.3 ZUnbind(dest, var)</h3>
+
+<p>This function is the counterpart to <tt>ZBind</tt>. It will unbind
+<tt>var</tt> in all specified processes.</p>
+
+<pre>
+gap&gt; ZUnbind(ZAll, &quot;status&quot;);
+</pre>
+
+<h3 id="s12.2.4">12.2.4 ZCall(dest, func, args)</h3>
+
+<p>This function will execute the function specified by the string
+<tt>func</tt> in the specified processes. The string <tt>func</tt> must
+be the name of a global variable referring to the function to be
+executed. This function should be created at startup by adding a file to
+the commandline that defines it in all workers or by <tt>ZExec</tt>.</p>
+
+<pre>
+gap&gt; ZBind(ZAll, &quot;counter&quot;, 0);
+gap&gt; ZExec(Zall, &quot;add := function(n) counter := counter + n; end;&quot;);
+gap&gt; ZCall(1, &quot;add&quot;, [1]);
+</pre>
+
+<h3 id="s12.2.5">12.2.5 ZQuery(dest, func, args, callback)</h3>
+
+<p>This function works like <tt>ZCall</tt>, except that any return value
+will be passed to the callback function.</p>
+
+<pre>
+gap&gt; res := false;
+false
+gap&gt; ZQuery(1, &quot;ReturnTrue&quot;, [], function(x) res := x; end);
+gap&gt; res;
+true
+</pre>
+
+<h3 id="s12.2.6">12.2.6 ZResponse()</h3>
+
+<p><tt>ZResponse</tt> is a convenience function to construct blocking
+callbacks for <tt>ZCall</tt> and <tt>ZTask</tt>. It returns a record
+containing a <tt>put</tt>, a <tt>get</tt>, and a <tt>test</tt> function.
+Here, <tt>put</tt> is passed as the callback; <tt>get</tt> can be used
+to read the returned value; and <tt>test</tt> can be used to test for
+the presence of a value.</p>
+
+<pre>
+gap&gt; resp := ZResponse();;
+gap&gt; ZQuery(1, &quot;Z&quot;, [4], resp.put);
+gap&gt; resp.get();
+Z(2^2)
+gap&gt; resp.test();
+true
+</pre>
+
+<h3 id="s12.2.7">12.2.7 ZTask(dest, func, args, callback)</h3>
+
+<p>This function works like <tt>ZQuery</tt>, except that the function
+will be executed via a task and <tt>callback</tt> will be called after
+the task finishes and returns a result.</p>
+
+<h3 id="s12.2.8">12.2.8 ZAsync(dest, func, args)</h3>
+
+<p>This function works like <tt>ZCall</tt>, except that the function
+will be executed via a task.</p>
+
+<h3 id="s12.2.9">12.2.9 ZRead(dest, file)</h3>
+
+<p>This function does a <tt>Read(file)</tt> for all specified
+processes.</p>
+
+<h3 id="s12.2.10">12.2.10 ZReadGapRoot(dest, file)</h3>
+
+<p>This function does a <tt>ReadGapRoot(file)</tt> for all specified
+processes.</p>
+
+<hr>
+<h2 id="s13.">13. Low-level functionality</h2>
+
+<p>The functionality described in this section should only be used by
+experts, and even by those only with caution (especially the parts that
+relate to the memory model).</p>
+
+<p>Not only is it possible to crash or hang the GAP kernel, it can
+happen in ways that are very difficult to reproduce, leading to software
+defects that are discovered only long after deployment of a package and
+then become difficult to correct.</p>
+
+<p>The performance benefit of using these primitives is generally
+minimal; while concurrency can induce some overhead, the benefit from
+micromanaging concurrency in an interpreted language such as GAP is
+likely to be small.</p>
+
+<p>These low-level primitives exist primarily for the benefit of kernel
+programmers; it allows them to prototype new kernel functionality in GAP
+before implementing it in C.</p>
+
+<h3 id="s13.1">13.1 Explicit lock and unlock primitives</h3>
+
+<p>The <tt>LOCK</tt> operation combined with <tt>UNLOCK</tt> is a
+low-level interface for the functionality of the <tt><a
+href="#s3.9.43">atomic</a></tt> statement.</p>
+
+<h3 id="s13.1.1">13.1.1 LOCK([arg_1, ..., arg_n])</h3>
+
+<p><tt>LOCK</tt> takes zero or more pairs of parameters, where each is
+either an object or a boolean value. If an argument is an object, the
+region containing it will be locked. If an argument is the boolean value
+<tt>false</tt>, all subsequent locks will be read locks; if it is the
+boolean value <tt>true</tt>, all subsequent locks will be write locks.
+If the first argument is not a boolean value, all locks until the first
+boolean value will be write locks.</p>
+
+<p>Locks are managed internally as a stack of locked regions;
+<tt>LOCK</tt> returns an integer indicating a pointer to the top of the
+stack; this integer is used later by the <tt>UNLOCK</tt> operation to
+unlock locks on the stack up to that position. If <tt>LOCK</tt> should
+fail for some reason, it will return <tt>fail</tt>.</p>
+
+<p>Calling <tt>LOCK()</tt> with no parameters returns the current lock
+stack pointer.</p>
+
+<h3 id="s13.1.2">13.1.2 TRYLOCK([arg_1, ..., arg_n])</h3>
+
+<p><tt>TRYLOCK</tt> works similarly to <tt>LOCK</tt>. If it cannot
+acquire all region locks, it returns <tt>fail</tt> and does not lock any
+regions. Otherwise, its semantics are identical to <tt>LOCK</tt>.</p>
+
+<h3 id="s13.1.3">13.1.3 UNLOCK(stackpos)</h3>
+
+<p><tt>UNLOCK</tt> unlocks all regions on the stack at <tt>stackpos</tt>
+or higher and sets the stack pointer to <tt>stackpos</tt>.</p>
+
+<pre>
+gap&gt; l1 := ShareObj([1,2,3]);;
+gap&gt; l2 := ShareObj([4,5,6]);;
+gap&gt; p := LOCK(l1);
+0
+gap&gt; LOCK(l2);
+1
+gap&gt; UNLOCK(p); # unlock both RegionOf(l1) and RegionOf(l2)
+gap&gt; LOCK(); # current stack pointer
+0
+</pre>
+
+<h3 id="s13.2">13.2 Hash locks</h3>
+
+<p>HPC-GAP supports <em>hash locks</em>; internally, the kernel
+maintains a fixed size array of locks; objects are mapped to a lock via
+hash function. The hash function is based on the object reference, not
+its contents (except for short integers and finite field elements).</p>
+
+<pre>
+gap&gt; l := [ 1, 2, 3];;
+gap&gt; f := l -&gt; Sum(l);;
+gap&gt; HASH_LOCK(l);   # lock &#39;l&#39;
+gap&gt; f(l);           # do something with &#39;l&#39;
+6
+gap&gt; HASH_UNLOCK(l); # unlock &#39;l&#39;
+</pre>
+
+<p>Hash locks should only be used for very short operations, since there
+is a chance that two concurrently locked objects map to the same hash
+value, leading to unnecessary contention.</p>
+
+<p>Hash locks are unrelated to the locks used by the <tt>atomic</tt>
+statements and the <tt>LOCK</tt> and <tt>UNLOCK</tt> primitives.</p>
+
+<h3 id="s13.2.1">13.2.1 HASH_LOCK(obj)</h3>
+
+<p><tt>HASH_LOCK</tt> obtains the read-write lock for the hash value
+associated with <tt>obj</tt>.</p>
+
+<h3 id="s13.2.2">13.2.2 HASH_UNLOCK(obj)</h3>
+
+<p><tt>HASH_UNLOCK</tt> releases the read-write lock for the hash value
+associated with <tt>obj</tt>.</p>
+
+<h3 id="s13.2.3">13.2.3 HASH_LOCK_SHARED(obj)</h3>
+
+<p><tt>HASH_LOCK_SHARED</tt> obtains the read-only lock for the hash
+value associated with <tt>obj</tt>.</p>
+
+<h3 id="s13.2.4">13.2.4 HASH_UNLOCK_SHARED(obj)</h3>
+
+<p><tt>HASH_UNLOCK_SHARED</tt> releases the read-only lock for the hash
+value associated with <tt>obj</tt>.</p>
+
+<h3 id="s13.3">13.3 Migration to the public region</h3>
+
+<p>HPC-GAP allows migration of arbitrary objects to the public region.
+This functionality is potentially dangerous; for example, if two threads
+try resize a plain list simultaneously, this can result in memory
+corruption.</p>
+
+<p>Accordingly, such data should never be accessed except through
+operations that protect accesses through locks, memory barriers, or
+other mechanisms.</p>
+
+<h3 id="s13.3.1">13.3.1 MAKE_PUBLIC(obj)</h3>
+
+<p><tt>MAKE_PUBLIC</tt> makes <tt>obj</tt> and all its subobjects
+members of the public region.</p>
+
+<h3 id="s13.3.2">13.3.2 MAKE_PUBLIC_NORECURSE(obj)</h3>
+
+<p><tt>MAKE_PUBLIC_NORECURSE</tt> makes <tt>obj</tt>, but not any of its
+subobjects members of the public region.</p>
+
+<h3 id="s13.4">13.4 Memory barriers</h3>
+
+<p>The memory models of some processors do no guarantee that read and
+writes reflect accesses to main memory in the same order in which the
+processor performed them; for example, code may write variable v1 first,
+and v2 second; but the cache line containing v2 is flushed to main
+memory first so that other processors see the change to v2 before the
+change to v1.</p>
+
+<p>Memory barriers can be used to prevent such counter-intuitive
+reordering of memory accesses.</p>
+
+<h3 id="s13.4.1">13.4.1 ORDERED_WRITE(expr)</h3>
+
+<p>The <tt>ORDERED_WRITE</tt> function guarantees that all writes that
+occur prior to its execution or during the evaluation of <tt>expr</tt>
+become visible to other processors before any of the code executed
+after.</p>
+
+<p>Example:</p>
+
+<pre>
+gap&gt; y:=0;; f := function() y := 1; return 2; end;;
+gap&gt; x := ORDERED_WRITE(f());
+2
+</pre>
+
+<p>Here, the write barrier ensure that the assignment to <tt>y</tt> that
+occurs during the call of <tt>f()</tt> becomes visible to other
+processors before or at the same time as the assignment to
+<tt>x</tt>.</p>
+
+<p>This can also be done differently, with the same semantics:</p>
+
+<pre>
+gap&gt; t := f();; # temporary variable
+gap&gt; ORDERED_WRITE(0);; # dummy argument
+gap&gt; x := t;
+2
+</pre>
+
+<h3 id="s13.4.2">13.4.2 ORDERED_READ(expr)</h3>
+
+<p>Conversely, the <tt>ORDERED_READ</tt> function ensures that reads
+that occur before its call or during the evaluation of <tt>expr</tt> are
+not reordered with respects to memory reads occurring after it.</p>
+
+<h3 id="s13.5">13.5 Object manipulation</h3>
+
+<p>There are two new functions to exchange a pair of objects.</p>
+
+<h3 id="s13.5.1">13.5.1 SWITCH_OBJ(obj1, obj2)</h3>
+
+<p><tt>SWITCH_OBJ</tt> exchanges its two arguments. All variables
+currently referencing <tt>obj1</tt> will reference <tt>obj2</tt> instead
+after the operation completes, and vice versa. Both objects stay within
+their previous regions.</p>
+
+<pre>
+gap&gt; a := [ 1, 2, 3];;
+gap&gt; b := [ 4, 5, 6];;
+gap&gt; SWITCH_OBJ(a, b);
+gap&gt; a;
+[ 4, 5, 6 ]
+gap&gt; b;
+[ 1, 2, 3 ]
+</pre>
+
+<p>The function requires exclusive access to both objects, which may
+necessitate using an atomic statement, e.g.:</p>
+
+<pre>
+gap&gt; a := ShareObj([ 1, 2, 3]);;
+gap&gt; b := ShareObj([ 4, 5, 6]);;
+gap&gt; atomic a, b do SWITCH_OBJ(a, b); od;
+gap&gt; atomic readonly a do Display(a); od;
+[ 4, 5, 6 ]
+gap&gt; atomic readonly b do Display(b); od;
+[ 1, 2, 3 ]
+</pre>
+
+<h3 id="s13.5.2">13.5.2 FORCE_SWITCH_OBJ(obj1, obj2)</h3>
+
+<p><tt>FORCE_SWITCH_OBJ</tt> works like <tt><a
+href="#s13.5.1">SWITCH_OBJ</a></tt>, except that it can also exchange
+objects in the public region:</p>
+
+<pre>
+gap&gt; a := ShareObj([ 1, 2, 3]);;
+gap&gt; b := MakeImmutable([ 4, 5, 6]);;
+gap&gt; atomic a do FORCE_SWITCH_OBJ(a, b); od;
+gap&gt; a;
+[ 4, 5, 6 ]
+</pre>
+
+<p>This function should be used with extreme caution and only with
+public objects for which only the current thread has a reference.
+Otherwise, undefined behavior and crashes can result from other threads
+accessing the public object concurrently.</p>
+

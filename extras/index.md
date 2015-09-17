@@ -3,6 +3,10 @@ layout: page
 title: Extras
 ---
 
+### HPC-GAP
+
+You can find a copy of the [HPC-GAP documentation here](hpcdoc.html).
+
 
 ### Bibliography for GAP course
 
