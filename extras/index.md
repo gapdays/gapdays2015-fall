@@ -7,6 +7,11 @@ title: Extras
 
 You can find a copy of the [HPC-GAP documentation here](hpcdoc.html).
 
+As a reminder, if you want to give HPC-GAP a try, we suggest following [Reimer's build guide](https://github.com/gap-system/gap/wiki/Building-HPC-GAP).
+If you encounter any difficulties, use the [issue tracker](https://github.com/gap-system/gap/issues)
+to report your problem (please include OS version, compiler version, ...).
+
+
 
 ### Bibliography for GAP course
 
