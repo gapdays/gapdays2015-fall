@@ -3,6 +3,8 @@ layout: page
 title: Participants
 ---
 
+[![Group photo]({{ site.baseurl }}/photos/groupphoto-gapdays2015-fall_thumb.jpg "Group photo")]({{ site.baseurl }}/photos/groupphoto-gapdays2015-fall.jpg)
+
 <ol>
 {% for p in site.data.participants %}
   <li>
