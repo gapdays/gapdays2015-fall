@@ -7,6 +7,11 @@
 
 - name: Jan De Beule
   affiliation: Ghent University
+  links:
+    "slides": ../talks/jdebeule_gapdays_fall2015.pdf
+    "demo 1": ../talks/demo1.g
+    "demo 2": ../talks/demo2.g
+    "demo 3": ../talks/demo3.g
 
 - name: Martin Bies
   affiliation: Institute for Theoretical Physics, Heidelberg
