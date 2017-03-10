@@ -10,5 +10,5 @@ url:              http://gapdays.de
 baseurl:          /gapdays2015-fall
 
 
-exclude: [ "program.aux", "program.log", "program.out", "program.tex", "misc" ]
+exclude: [ "LICENSE.hyde.md", "README.hyde.md", "program.aux", "program.log", "program.out", "program.tex", "misc" ]
 include: [ "program.pdf" ]
